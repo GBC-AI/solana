@@ -5,11 +5,14 @@ use serde::Serialize;
 pub use solana_sdk::packet::{Meta, Packet, PACKET_DATA_SIZE};
 use std::net::SocketAddr;
 
-pub const NUM_PACKETS: usize = 1024 * 8;
-
-pub const PACKETS_PER_BATCH: usize = 256;
-pub const NUM_RCVMMSGS: usize = 128;
-pub const PACKETS_BATCH_SIZE: usize = PACKETS_PER_BATCH * PACKET_DATA_SIZE;
+toml_config::package_config! {
+    NUM_RCVMMSGS: usize,
+    NUM_PACKETS: usize,
+    PACKETS_PER_BATCH: usize,
+}
+toml_config::derived_values! {
+    PACKETS_BATCH_SIZE: usize = CFG.PACKETS_PER_BATCH * PACKET_DATA_SIZE;
+}
 
 #[derive(Debug, Clone)]
 pub struct Packets {
@@ -19,7 +22,7 @@ pub struct Packets {
 //auto derive doesn't support large arrays
 impl Default for Packets {
     fn default() -> Packets {
-        let packets = PinnedVec::with_capacity(NUM_RCVMMSGS);
+        let packets = PinnedVec::with_capacity(CFG.NUM_RCVMMSGS);
         Packets { packets }
     }
 }
@@ -72,7 +75,7 @@ pub fn to_packets_chunked<T: Serialize>(xs: &[T], chunks: usize) -> Vec<Packets>
 }
 
 pub fn to_packets<T: Serialize>(xs: &[T]) -> Vec<Packets> {
-    to_packets_chunked(xs, NUM_PACKETS)
+    to_packets_chunked(xs, CFG.NUM_PACKETS)
 }
 
 pub fn to_packets_with_destination<T: Serialize>(
@@ -125,14 +128,14 @@ mod tests {
         assert_eq!(rv[0].packets.len(), 1);
 
         #[allow(clippy::useless_vec)]
-        let rv = to_packets(&vec![tx.clone(); NUM_PACKETS]);
+        let rv = to_packets(&vec![tx.clone(); CFG.NUM_PACKETS]);
         assert_eq!(rv.len(), 1);
-        assert_eq!(rv[0].packets.len(), NUM_PACKETS);
+        assert_eq!(rv[0].packets.len(), CFG.NUM_PACKETS);
 
         #[allow(clippy::useless_vec)]
-        let rv = to_packets(&vec![tx; NUM_PACKETS + 1]);
+        let rv = to_packets(&vec![tx; CFG.NUM_PACKETS + 1]);
         assert_eq!(rv.len(), 2);
-        assert_eq!(rv[0].packets.len(), NUM_PACKETS);
+        assert_eq!(rv[0].packets.len(), CFG.NUM_PACKETS);
         assert_eq!(rv[1].packets.len(), 1);
     }
 

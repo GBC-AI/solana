@@ -13,7 +13,9 @@ use tokio::runtime;
 //
 // A more direct connection between CacheBlockTimeService and BigTableUploadService would be
 // preferable...
-const LARGEST_CONFIRMED_ROOT_UPLOAD_DELAY: usize = 100;
+toml_config::package_config! {
+    LARGEST_CONFIRMED_ROOT_UPLOAD_DELAY: usize,
+}
 
 pub struct BigTableUploadService {
     thread: JoinHandle<()>,
@@ -61,7 +63,7 @@ impl BigTableUploadService {
                 .read()
                 .unwrap()
                 .highest_confirmed_root()
-                .saturating_sub(LARGEST_CONFIRMED_ROOT_UPLOAD_DELAY as u64);
+                .saturating_sub(CFG.LARGEST_CONFIRMED_ROOT_UPLOAD_DELAY as u64);
 
             if end_slot <= start_slot {
                 std::thread::sleep(std::time::Duration::from_secs(1));

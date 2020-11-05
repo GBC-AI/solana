@@ -78,6 +78,9 @@ tokio_fs_01 = { version = "0.1", package = "tokio-fs" }
 tokio_io_01 = { version = "0.1", package = "tokio-io" }
 solana-rayon-threadlimit = { path = "../rayon-threadlimit", version = "1.5.0" }
 trees = "0.2.1"
+lazy_static = "1.4.0"
+
+toml-config = { path = "../toml-config" }
 
 [dev-dependencies]
 matches = "0.1.6"

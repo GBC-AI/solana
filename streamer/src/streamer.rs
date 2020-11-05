@@ -1,8 +1,7 @@
 //! The `streamer` module defines a set of services for efficiently pulling data from UDP sockets.
 //!
 
-use crate::packet::{self, send_to, Packets, PacketsRecycler, PACKETS_PER_BATCH};
-use crate::recvmmsg::NUM_RCVMMSGS;
+use crate::packet::{self, send_to, Packets, PacketsRecycler, PACKET_CFG};
 use solana_measure::thread_mem_usage;
 use solana_sdk::timing::{duration_as_ms, timestamp};
 use std::net::UdpSocket;
@@ -42,7 +41,8 @@ fn recv_loop(
     let mut now = Instant::now();
     let mut num_max_received = 0; // Number of times maximum packets were received
     loop {
-        let mut msgs = Packets::new_with_recycler(recycler.clone(), PACKETS_PER_BATCH, name);
+        let mut msgs =
+            Packets::new_with_recycler(recycler.clone(), PACKET_CFG.PACKETS_PER_BATCH, name);
         loop {
             // Check for exit signal, even if socket is busy
             // (for instance the leader transaction socket)
@@ -50,7 +50,7 @@ fn recv_loop(
                 return Ok(());
             }
             if let Ok(len) = packet::recv_from(&mut msgs, sock, 1) {
-                if len == NUM_RCVMMSGS {
+                if len == PACKET_CFG.NUM_RCVMMSGS {
                     num_max_received += 1;
                 }
                 recv_count += len;

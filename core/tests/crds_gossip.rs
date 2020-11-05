@@ -8,7 +8,7 @@ use solana_core::contact_info::ContactInfo;
 use solana_core::crds_gossip::*;
 use solana_core::crds_gossip_error::CrdsGossipError;
 use solana_core::crds_gossip_pull::{ProcessPullStats, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS};
-use solana_core::crds_gossip_push::CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS;
+use solana_core::crds_gossip_push::CFG as GOSSIP_PUSH_CFG;
 use solana_core::crds_value::CrdsValueLabel;
 use solana_core::crds_value::{CrdsData, CrdsValue};
 use solana_rayon_threadlimit::get_thread_count;
@@ -372,7 +372,7 @@ fn network_run_push(
                 }
             }
         }
-        if now % CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS == 0 && now > 0 {
+        if now % (GOSSIP_PUSH_CFG.CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS) == 0 && now > 0 {
             network_values.par_iter().for_each(|node| {
                 node.lock()
                     .unwrap()

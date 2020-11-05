@@ -18,8 +18,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, Builder, JoinHandle};
 use thiserror::Error;
 
-const RECV_BATCH_MAX_CPU: usize = 1_000;
-const RECV_BATCH_MAX_GPU: usize = 5_000;
+toml_config::package_config! {
+    RECV_BATCH_MAX_CPU: usize,
+    RECV_BATCH_MAX_GPU: usize,
+}
 
 #[derive(Error, Debug)]
 pub enum SigVerifyServiceError {
@@ -71,9 +73,9 @@ impl SigVerifyStage {
         let (batch, len, recv_time) = streamer::recv_batch(
             &recvr.lock().expect("'recvr' lock in fn verifier"),
             if perf_libs::api().is_some() {
-                RECV_BATCH_MAX_GPU
+                CFG.RECV_BATCH_MAX_GPU
             } else {
-                RECV_BATCH_MAX_CPU
+                CFG.RECV_BATCH_MAX_CPU
             },
         )?;
 

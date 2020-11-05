@@ -1,5 +1,42 @@
 [solana-sdk.clock]
 
+[solana-core]
+CRDS_GOSSIP_NUM_ACTIVE = 30 # usize
+CRDS_GOSSIP_PUSH_FANOUT = 6 # usize
+# With a fanout of 6, a 1000 node cluster should only take ~4 hops to converge.
+# However since pushes are stake weighed, some trailing nodes
+# might need more time to receive values. 30 seconds should be plenty.
+CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS = 30000 # u64
+CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS = 500 # u64
+CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT = 0.15 # f64
+CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES = 3 # usize
+# Do not push to peers which have not been updated for this long.
+PUSH_ACTIVE_TIMEOUT_MS  = 60_000 # u64
+# 10 minutes
+MAX_PUSHED_TO_TIMEOUT_MS = 60000 # u64 = 10 * 60 * 1000
+
+
+RECV_BATCH_MAX_CPU = 1_000 # usize
+RECV_BATCH_MAX_GPU = 5_000 # usize
+
+
+# Transaction forwarding
+FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET = 1 # u64
+# Fixed thread size seems to be fastest on GCP setup
+NUM_THREADS = 4 # u32
+TOTAL_BUFFERED_PACKETS = 500_000 # usize
+MAX_NUM_TRANSACTIONS_PER_BATCH = 128 # usize
+
+# Delay uploading the largest confirmed root for this many slots.
+LARGEST_CONFIRMED_ROOT_UPLOAD_DELAY = 100 # usize
+
+
+[solana-perf]
+NUM_PACKETS = 8192 # usize = 1024 * 8
+PACKETS_PER_BATCH = 256 # usize
+NUM_RCVMMSGS = 128 # usize
+
+
 [solana-runtime]
 INTERVAL_MS = 100 # u64
 SHRUNKEN_ACCOUNT_PER_SEC = 250 # usize

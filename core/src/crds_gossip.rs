@@ -7,7 +7,7 @@ use crate::{
     crds::{Crds, VersionedCrdsValue},
     crds_gossip_error::CrdsGossipError,
     crds_gossip_pull::{CrdsFilter, CrdsGossipPull, ProcessPullStats},
-    crds_gossip_push::{CrdsGossipPush, CRDS_GOSSIP_NUM_ACTIVE},
+    crds_gossip_push::{CrdsGossipPush, CFG as GOSSIP_PUSH_CFG},
     crds_value::{CrdsValue, CrdsValueLabel},
 };
 use rayon::ThreadPool;
@@ -141,7 +141,7 @@ impl CrdsGossip {
             &self.id,
             self.shred_version,
             self.pull.pull_request_time.len(),
-            CRDS_GOSSIP_NUM_ACTIVE,
+            GOSSIP_PUSH_CFG.CRDS_GOSSIP_NUM_ACTIVE,
         )
     }
 

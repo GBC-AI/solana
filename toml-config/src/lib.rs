@@ -6,7 +6,7 @@ macro_rules! package_config {
         #[allow(non_snake_case)]
         #[derive(serde_derive::Deserialize)]
         pub struct PackageConfig {
-            pub $($const: $ty),+
+            $(pub $const: $ty),+
         }
 
         lazy_static::lazy_static! {

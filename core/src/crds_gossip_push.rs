@@ -27,20 +27,17 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-pub const CRDS_GOSSIP_NUM_ACTIVE: usize = 30;
-pub const CRDS_GOSSIP_PUSH_FANOUT: usize = 6;
-// With a fanout of 6, a 1000 node cluster should only take ~4 hops to converge.
-// However since pushes are stake weighed, some trailing nodes
-// might need more time to receive values. 30 seconds should be plenty.
-pub const CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS: u64 = 30000;
-pub const CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS: u64 = 500;
-pub const CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT: f64 = 0.15;
-pub const CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES: usize = 3;
-// Do not push to peers which have not been updated for this long.
-const PUSH_ACTIVE_TIMEOUT_MS: u64 = 60_000;
+toml_config::package_config! {
+    CRDS_GOSSIP_NUM_ACTIVE: usize,
+    CRDS_GOSSIP_PUSH_FANOUT: usize,
+    CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS: u64,
+    CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS: u64,
+    CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT: f64,
+    CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES: usize,
+    PUSH_ACTIVE_TIMEOUT_MS: u64,
 
-// 10 minutes
-const MAX_PUSHED_TO_TIMEOUT_MS: u64 = 10 * 60 * 1000;
+    MAX_PUSHED_TO_TIMEOUT_MS: u64,
+}
 
 #[derive(Clone)]
 pub struct CrdsGossipPush {
@@ -76,10 +73,10 @@ impl Default for CrdsGossipPush {
             received_cache: HashMap::new(),
             last_pushed_to: HashMap::new(),
             last_pushed_to_cleanup_ts: 0,
-            num_active: CRDS_GOSSIP_NUM_ACTIVE,
-            push_fanout: CRDS_GOSSIP_PUSH_FANOUT,
-            msg_timeout: CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS,
-            prune_timeout: CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS,
+            num_active: CFG.CRDS_GOSSIP_NUM_ACTIVE,
+            push_fanout: CFG.CRDS_GOSSIP_PUSH_FANOUT,
+            msg_timeout: CFG.CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS,
+            prune_timeout: CFG.CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS,
             num_total: 0,
             num_old: 0,
             num_pushes: 0,
@@ -93,7 +90,7 @@ impl CrdsGossipPush {
 
     fn prune_stake_threshold(self_stake: u64, origin_stake: u64) -> u64 {
         let min_path_stake = self_stake.min(origin_stake);
-        ((CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT * min_path_stake as f64).round() as u64).max(1)
+        ((CFG.CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT * min_path_stake as f64).round() as u64).max(1)
     }
 
     pub fn prune_received_cache(
@@ -145,7 +142,7 @@ impl CrdsGossipPush {
             keep.insert(next_peer);
             peer_stake_sum += next_stake;
             if peer_stake_sum >= prune_stake_threshold
-                && keep.len() >= CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES
+                && keep.len() >= CFG.CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES
             {
                 break;
             }
@@ -278,9 +275,9 @@ impl CrdsGossipPush {
         for target_pubkey in push_messages.keys() {
             *self.last_pushed_to.entry(*target_pubkey).or_insert(0) = now;
         }
-        if now - self.last_pushed_to_cleanup_ts > MAX_PUSHED_TO_TIMEOUT_MS {
+        if now - self.last_pushed_to_cleanup_ts > CFG.MAX_PUSHED_TO_TIMEOUT_MS {
             self.last_pushed_to
-                .retain(|_id, timestamp| now - *timestamp > MAX_PUSHED_TO_TIMEOUT_MS);
+                .retain(|_id, timestamp| now - *timestamp > CFG.MAX_PUSHED_TO_TIMEOUT_MS);
             self.last_pushed_to_cleanup_ts = now;
         }
         push_messages
@@ -377,7 +374,7 @@ impl CrdsGossipPush {
         let now = timestamp();
         let mut rng = rand::thread_rng();
         let max_weight = u16::MAX as f32 - 1.0;
-        let active_cutoff = now.saturating_sub(PUSH_ACTIVE_TIMEOUT_MS);
+        let active_cutoff = now.saturating_sub(CFG.PUSH_ACTIVE_TIMEOUT_MS);
         crds.table
             .values()
             .filter_map(|value| {

@@ -24,6 +24,9 @@ solana-logger = { path = "../logger", version = "1.5.0" }
 solana-metrics = { path = "../metrics", version = "1.5.0" }
 curve25519-dalek = { version = "2" }
 
+toml-config = { path = "../toml-config" }
+serde_derive = "1.0.117"
+
 [lib]
 name = "solana_perf"
 

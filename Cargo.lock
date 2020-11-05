@@ -3905,6 +3905,7 @@ dependencies = [
  "jsonrpc-http-server",
  "jsonrpc-pubsub",
  "jsonrpc-ws-server",
+ "lazy_static",
  "log 0.4.8",
  "lru",
  "matches",
@@ -3955,6 +3956,7 @@ dependencies = [
  "tokio 0.2.22",
  "tokio-fs",
  "tokio-io",
+ "toml-config",
  "trees",
 ]
 
@@ -4457,11 +4459,13 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "serde",
+ "serde_derive",
  "solana-budget-program",
  "solana-logger 1.5.0",
  "solana-metrics",
  "solana-rayon-threadlimit",
  "solana-sdk 1.5.0",
+ "toml-config",
 ]
 
 [[package]]

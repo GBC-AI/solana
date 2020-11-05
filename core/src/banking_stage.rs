@@ -18,7 +18,7 @@ use solana_measure::{measure::Measure, thread_mem_usage};
 use solana_metrics::{inc_new_counter_debug, inc_new_counter_info, inc_new_counter_warn};
 use solana_perf::{
     cuda_runtime::PinnedVec,
-    packet::{limited_deserialize, Packet, Packets, PACKETS_PER_BATCH},
+    packet::{limited_deserialize, Packet, Packets, CFG as PACKET_CFG},
     perf_libs,
 };
 use solana_runtime::{
@@ -52,15 +52,12 @@ use std::{
 type PacketsAndOffsets = (Packets, Vec<usize>);
 pub type UnprocessedPackets = Vec<PacketsAndOffsets>;
 
-/// Transaction forwarding
-pub const FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET: u64 = 1;
-
-// Fixed thread size seems to be fastest on GCP setup
-pub const NUM_THREADS: u32 = 4;
-
-const TOTAL_BUFFERED_PACKETS: usize = 500_000;
-
-const MAX_NUM_TRANSACTIONS_PER_BATCH: usize = 128;
+toml_config::package_config! {
+    FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET: u64,
+    NUM_THREADS: u32,
+    TOTAL_BUFFERED_PACKETS: usize,
+    MAX_NUM_TRANSACTIONS_PER_BATCH: usize,
+}
 
 /// Stores the stage's thread handle and output receiver.
 pub struct BankingStage {
@@ -105,7 +102,8 @@ impl BankingStage {
         transaction_status_sender: Option<TransactionStatusSender>,
         gossip_vote_sender: ReplayVoteSender,
     ) -> Self {
-        let batch_limit = TOTAL_BUFFERED_PACKETS / ((num_threads - 1) as usize * PACKETS_PER_BATCH);
+        let batch_limit = CFG.TOTAL_BUFFERED_PACKETS
+            / ((num_threads - 1) as usize * PACKET_CFG.PACKETS_PER_BATCH);
         // Single thread to generate entries from many banks.
         // This thread talks to poh_service and broadcasts the entries once they have been recorded.
         // Once an entry has been recorded, its blockhash is registered with the bank.
@@ -307,10 +305,11 @@ impl BankingStage {
         let (leader_at_slot_offset, poh_has_bank, would_be_leader) = {
             let poh = poh_recorder.lock().unwrap();
             (
-                poh.leader_after_n_slots(FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET),
+                poh.leader_after_n_slots(CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET),
                 poh.has_bank(),
                 poh.would_be_leader(
-                    (FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET - 1) * DEFAULT_TICKS_PER_SLOT,
+                    (CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET - 1)
+                        * DEFAULT_TICKS_PER_SLOT,
                 ),
             )
         };
@@ -339,7 +338,7 @@ impl BankingStage {
                     let next_leader = poh_recorder
                         .lock()
                         .unwrap()
-                        .leader_after_n_slots(FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET);
+                        .leader_after_n_slots(CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET);
                     next_leader.map_or((), |leader_pubkey| {
                         let leader_addr = {
                             cluster_info
@@ -442,8 +441,8 @@ impl BankingStage {
         const MIN_THREADS_BANKING: u32 = 1;
         cmp::max(
             env::var("SOLANA_BANKING_THREADS")
-                .map(|x| x.parse().unwrap_or(NUM_THREADS))
-                .unwrap_or(NUM_THREADS),
+                .map(|x| x.parse().unwrap_or(CFG.NUM_THREADS))
+                .unwrap_or(CFG.NUM_THREADS),
             MIN_THREADS_VOTES + MIN_THREADS_BANKING,
         )
     }
@@ -657,7 +656,7 @@ impl BankingStage {
         while chunk_start != transactions.len() {
             let chunk_end = std::cmp::min(
                 transactions.len(),
-                chunk_start + MAX_NUM_TRANSACTIONS_PER_BATCH,
+                chunk_start + CFG.MAX_NUM_TRANSACTIONS_PER_BATCH,
             );
 
             let (result, retryable_txs_in_chunk) = Self::process_and_record_transactions(
@@ -801,7 +800,7 @@ impl BankingStage {
             &filter,
             (MAX_PROCESSING_AGE)
                 .saturating_sub(max_tx_fwd_delay)
-                .saturating_sub(FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET as usize),
+                .saturating_sub(CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET as usize),
             &mut error_counters,
         );
 

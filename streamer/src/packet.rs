@@ -1,8 +1,8 @@
 //! The `packet` module defines data structures and methods to pull data from the network.
-use crate::recvmmsg::{recv_mmsg, NUM_RCVMMSGS};
+use crate::recvmmsg::recv_mmsg;
 pub use solana_perf::packet::{
-    limited_deserialize, to_packets, to_packets_chunked, Packets, PacketsRecycler, NUM_PACKETS,
-    PACKETS_BATCH_SIZE, PACKETS_PER_BATCH,
+    limited_deserialize, to_packets, to_packets_chunked, Packets, PacketsRecycler,
+    CFG as PACKET_CFG, PACKETS_BATCH_SIZE,
 };
 
 use solana_metrics::inc_new_counter_debug;
@@ -22,7 +22,7 @@ pub fn recv_from(obj: &mut Packets, socket: &UdpSocket, max_wait_ms: usize) -> R
     let start = Instant::now();
     loop {
         obj.packets.resize(
-            std::cmp::min(i + NUM_RCVMMSGS, PACKETS_PER_BATCH),
+            std::cmp::min(i + PACKET_CFG.NUM_RCVMMSGS, PACKET_CFG.PACKETS_PER_BATCH),
             Packet::default(),
         );
         match recv_mmsg(socket, &mut obj.packets[i..]) {
@@ -43,7 +43,9 @@ pub fn recv_from(obj: &mut Packets, socket: &UdpSocket, max_wait_ms: usize) -> R
                 i += npkts;
                 // Try to batch into big enough buffers
                 // will cause less re-shuffling later on.
-                if start.elapsed().as_millis() > max_wait_ms as u128 || i >= PACKETS_PER_BATCH {
+                if start.elapsed().as_millis() > max_wait_ms as u128
+                    || i >= PACKET_CFG.PACKETS_PER_BATCH
+                {
                     break;
                 }
             }
@@ -136,11 +138,12 @@ mod tests {
         let addr = recv_socket.local_addr().unwrap();
         let send_socket = UdpSocket::bind("127.0.0.1:0").expect("bind");
         let mut p = Packets::default();
-        p.packets.resize(PACKETS_PER_BATCH, Packet::default());
+        p.packets
+            .resize(PACKET_CFG.PACKETS_PER_BATCH, Packet::default());
 
         // Should only get PACKETS_PER_BATCH packets per iteration even
         // if a lot more were sent, and regardless of packet size
-        for _ in 0..2 * PACKETS_PER_BATCH {
+        for _ in 0..2 * PACKET_CFG.PACKETS_PER_BATCH {
             let mut p = Packets::default();
             p.packets.resize(1, Packet::default());
             for m in p.packets.iter_mut() {
@@ -153,7 +156,7 @@ mod tests {
         let recvd = recv_from(&mut p, &recv_socket, 100).unwrap();
 
         // Check we only got PACKETS_PER_BATCH packets
-        assert_eq!(recvd, PACKETS_PER_BATCH);
-        assert_eq!(p.packets.capacity(), PACKETS_PER_BATCH);
+        assert_eq!(recvd, PACKET_CFG.PACKETS_PER_BATCH);
+        assert_eq!(p.packets.capacity(), PACKET_CFG.PACKETS_PER_BATCH);
     }
 }
