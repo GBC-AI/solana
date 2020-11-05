@@ -3,7 +3,7 @@ use solana_measure::measure::Measure;
 use solana_metrics::datapoint_info;
 use solana_runtime::{
     bank::Bank,
-    commitment::{BlockCommitment, BlockCommitmentCache, CommitmentSlots, VOTE_THRESHOLD_SIZE},
+    commitment::{BlockCommitment, BlockCommitmentCache, CommitmentSlots, CFG as COMMITMENT_CFG},
 };
 use solana_sdk::clock::Slot;
 use solana_vote_program::vote_state::VoteState;
@@ -38,7 +38,7 @@ fn get_highest_confirmed_root(mut rooted_stake: Vec<(Slot, u64)>, total_stake: u
     let mut stake_sum = 0;
     for (root, stake) in rooted_stake {
         stake_sum += stake;
-        if (stake_sum as f64 / total_stake as f64) > VOTE_THRESHOLD_SIZE {
+        if (stake_sum as f64 / total_stake as f64) > COMMITMENT_CFG.VOTE_THRESHOLD_SIZE {
             return root;
         }
     }

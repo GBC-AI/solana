@@ -108,7 +108,10 @@ pub mod inline_spl_token_v2_0 {
 
 pub const SECONDS_PER_YEAR: f64 = 365.25 * 24.0 * 60.0 * 60.0;
 
-pub const MAX_LEADER_SCHEDULE_STAKES: Epoch = 5;
+toml_config::package_config! {
+    MAX_LEADER_SCHEDULE_STAKES: Epoch,
+    NUM_BLOCKHASH_CONFIRMATIONS: usize,
+}
 
 pub const TRANSACTION_LOG_MESSAGES_BYTES_LIMIT: usize = 100 * 1000;
 
@@ -1134,7 +1137,7 @@ impl Bank {
         //  crossed a boundary
         if self.epoch_stakes.get(&leader_schedule_epoch).is_none() {
             self.epoch_stakes.retain(|&epoch, _| {
-                epoch >= leader_schedule_epoch.saturating_sub(MAX_LEADER_SCHEDULE_STAKES)
+                epoch >= leader_schedule_epoch.saturating_sub(CFG.MAX_LEADER_SCHEDULE_STAKES)
             });
 
             let vote_stakes: HashMap<_, _> = self
@@ -1739,13 +1742,11 @@ impl Bank {
     }
 
     pub fn confirmed_last_blockhash(&self) -> (Hash, FeeCalculator) {
-        const NUM_BLOCKHASH_CONFIRMATIONS: usize = 3;
-
         let parents = self.parents();
         if parents.is_empty() {
             self.last_blockhash_with_fee_calculator()
         } else {
-            let index = NUM_BLOCKHASH_CONFIRMATIONS.min(parents.len() - 1);
+            let index = CFG.NUM_BLOCKHASH_CONFIRMATIONS.min(parents.len() - 1);
             parents[index].last_blockhash_with_fee_calculator()
         }
     }
@@ -4094,7 +4095,7 @@ mod tests {
         genesis_utils::{
             activate_all_features, create_genesis_config_with_leader,
             create_genesis_config_with_vote_accounts, GenesisConfigInfo, ValidatorVoteKeypairs,
-            BOOTSTRAP_VALIDATOR_LAMPORTS,
+            CFG as GENESIS_CFG,
         },
         native_loader::NativeLoaderError,
         status_cache::MAX_CACHE_ENTRIES,
@@ -4161,7 +4162,7 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn test_bank_new() {
         let dummy_leader_pubkey = solana_sdk::pubkey::new_rand();
-        let dummy_leader_lamports = BOOTSTRAP_VALIDATOR_LAMPORTS;
+        let dummy_leader_lamports = GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS;
         let mint_lamports = 10_000;
         let GenesisConfigInfo {
             mut genesis_config,
@@ -4231,7 +4232,7 @@ mod tests {
             assert_eq!(bank.epoch_stake_keys(), initial_epochs);
         }
 
-        for epoch in (initial_epochs.len() as Epoch)..MAX_LEADER_SCHEDULE_STAKES {
+        for epoch in (initial_epochs.len() as Epoch)..CFG.MAX_LEADER_SCHEDULE_STAKES {
             bank.update_epoch_stakes(epoch);
             assert_eq!(bank.epoch_stakes.len() as Epoch, epoch + 1);
         }
@@ -4240,28 +4241,28 @@ mod tests {
             bank.epoch_stake_key_info(),
             (
                 0,
-                MAX_LEADER_SCHEDULE_STAKES - 1,
-                MAX_LEADER_SCHEDULE_STAKES as usize
+                CFG.MAX_LEADER_SCHEDULE_STAKES - 1,
+                CFG.MAX_LEADER_SCHEDULE_STAKES as usize
             )
         );
 
-        bank.update_epoch_stakes(MAX_LEADER_SCHEDULE_STAKES);
+        bank.update_epoch_stakes(CFG.MAX_LEADER_SCHEDULE_STAKES);
         assert_eq!(
             bank.epoch_stake_key_info(),
             (
                 0,
-                MAX_LEADER_SCHEDULE_STAKES,
-                MAX_LEADER_SCHEDULE_STAKES as usize + 1
+                CFG.MAX_LEADER_SCHEDULE_STAKES,
+                CFG.MAX_LEADER_SCHEDULE_STAKES as usize + 1
             )
         );
 
-        bank.update_epoch_stakes(MAX_LEADER_SCHEDULE_STAKES + 1);
+        bank.update_epoch_stakes(CFG.MAX_LEADER_SCHEDULE_STAKES + 1);
         assert_eq!(
             bank.epoch_stake_key_info(),
             (
                 1,
-                MAX_LEADER_SCHEDULE_STAKES + 1,
-                MAX_LEADER_SCHEDULE_STAKES as usize + 1
+                CFG.MAX_LEADER_SCHEDULE_STAKES + 1,
+                CFG.MAX_LEADER_SCHEDULE_STAKES as usize + 1
             )
         );
     }

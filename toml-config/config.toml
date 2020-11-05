@@ -1,0 +1,3 @@
+[toml-config]
+FOO = 42
+BAR = 13

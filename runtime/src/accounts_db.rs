@@ -52,10 +52,15 @@ use std::{
 };
 use tempfile::TempDir;
 
-const PAGE_SIZE: u64 = 4 * 1024;
-pub const DEFAULT_FILE_SIZE: u64 = PAGE_SIZE * 1024;
-pub const DEFAULT_NUM_THREADS: u32 = 8;
-pub const DEFAULT_NUM_DIRS: u32 = 4;
+toml_config::package_config! {
+    PAGE_SIZE: u64,
+    DEFAULT_NUM_THREADS: u32,
+    DEFAULT_NUM_DIRS: u32,
+}
+
+toml_config::derived_values! {
+    DEFAULT_FILE_SIZE: u64 = CFG.PAGE_SIZE * 1024;
+}
 
 lazy_static! {
     // FROZEN_ACCOUNT_PANIC is used to signal local_cluster that an AccountsDB panic has occurred,
@@ -496,7 +501,7 @@ impl Default for AccountsDB {
             write_version: AtomicU64::new(0),
             paths: vec![],
             temp_paths: None,
-            file_size: DEFAULT_FILE_SIZE,
+            file_size: *DEFAULT_FILE_SIZE,
             thread_pool: rayon::ThreadPoolBuilder::new()
                 .num_threads(num_threads)
                 .thread_name(|i| format!("solana-accounts-db-{}", i))
@@ -524,7 +529,7 @@ impl AccountsDB {
         } else {
             // Create a temporary set of accounts directories, used primarily
             // for testing
-            let (temp_dirs, paths) = get_temp_accounts_paths(DEFAULT_NUM_DIRS).unwrap();
+            let (temp_dirs, paths) = get_temp_accounts_paths(CFG.DEFAULT_NUM_DIRS).unwrap();
             Self {
                 paths,
                 temp_paths: Some(temp_dirs),
@@ -1055,7 +1060,7 @@ impl AccountsDB {
                 },
             )
             .sum();
-        let aligned_total: u64 = (alive_total + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
+        let aligned_total: u64 = (alive_total + (CFG.PAGE_SIZE - 1)) & !(CFG.PAGE_SIZE - 1);
 
         debug!(
             "shrinking: slot: {}, stored_accounts: {} => alive_accounts: {} ({} bytes; aligned to: {})",
@@ -2788,11 +2793,11 @@ pub mod tests {
         let db = AccountsDB::new_single();
 
         let mut pubkeys: Vec<Pubkey> = vec![];
-        create_account(&db, &mut pubkeys, 0, 2, DEFAULT_FILE_SIZE as usize / 3, 0);
+        create_account(&db, &mut pubkeys, 0, 2, *DEFAULT_FILE_SIZE as usize / 3, 0);
         assert!(check_storage(&db, 0, 2));
 
         let pubkey = solana_sdk::pubkey::new_rand();
-        let account = Account::new(1, DEFAULT_FILE_SIZE as usize / 3, &pubkey);
+        let account = Account::new(1, *DEFAULT_FILE_SIZE as usize / 3, &pubkey);
         db.store(1, &[(&pubkey, &account)]);
         db.store(1, &[(&pubkeys[0], &account)]);
         {
@@ -3111,7 +3116,7 @@ pub mod tests {
         let count = [0, 1];
         let status = [AccountStorageStatus::Available, AccountStorageStatus::Full];
         let pubkey1 = solana_sdk::pubkey::new_rand();
-        let account1 = Account::new(1, DEFAULT_FILE_SIZE as usize / 2, &pubkey1);
+        let account1 = Account::new(1, *DEFAULT_FILE_SIZE as usize / 2, &pubkey1);
         accounts.store(0, &[(&pubkey1, &account1)]);
         {
             let stores = &accounts.storage.get_slot_stores(0).unwrap();
@@ -3122,7 +3127,7 @@ pub mod tests {
         }
 
         let pubkey2 = solana_sdk::pubkey::new_rand();
-        let account2 = Account::new(1, DEFAULT_FILE_SIZE as usize / 2, &pubkey2);
+        let account2 = Account::new(1, *DEFAULT_FILE_SIZE as usize / 2, &pubkey2);
         accounts.store(0, &[(&pubkey2, &account2)]);
         {
             assert_eq!(accounts.storage.0.len(), 1);
@@ -4066,7 +4071,7 @@ pub mod tests {
         let db = AccountsDB::new(Vec::new(), &ClusterType::Development);
 
         let key = Pubkey::default();
-        let data_len = DEFAULT_FILE_SIZE as usize + 7;
+        let data_len = *DEFAULT_FILE_SIZE as usize + 7;
         let account = Account::new(1, data_len, &key);
 
         db.store(0, &[(&key, &account)]);

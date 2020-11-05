@@ -19,11 +19,16 @@ use std::sync::{
 use std::thread::{self, sleep, Builder, JoinHandle};
 use std::time::Duration;
 
-const INTERVAL_MS: u64 = 100;
-const SHRUNKEN_ACCOUNT_PER_SEC: usize = 250;
-const SHRUNKEN_ACCOUNT_PER_INTERVAL: usize =
-    SHRUNKEN_ACCOUNT_PER_SEC / (1000 / INTERVAL_MS as usize);
-const CLEAN_INTERVAL_BLOCKS: u64 = 100;
+toml_config::package_config! {
+    INTERVAL_MS: u64,
+    SHRUNKEN_ACCOUNT_PER_SEC: usize,
+    CLEAN_INTERVAL_BLOCKS: u64,
+}
+
+toml_config::derived_values! {
+    SHRUNKEN_ACCOUNT_PER_INTERVAL: usize =
+        CFG.SHRUNKEN_ACCOUNT_PER_SEC / (1000 / CFG.INTERVAL_MS as usize);
+}
 
 pub type SnapshotRequestSender = Sender<SnapshotRequest>;
 pub type SnapshotRequestReceiver = Receiver<SnapshotRequest>;
@@ -56,7 +61,8 @@ impl SnapshotRequestHandler {
                 hash_time.stop();
 
                 let mut shrink_time = Measure::start("shrink_time");
-                snapshot_root_bank.process_stale_slot_with_budget(0, SHRUNKEN_ACCOUNT_PER_INTERVAL);
+                snapshot_root_bank
+                    .process_stale_slot_with_budget(0, *SHRUNKEN_ACCOUNT_PER_INTERVAL);
                 shrink_time.stop();
 
                 let mut clean_time = Measure::start("clean_time");
@@ -164,18 +170,18 @@ impl AccountsBackgroundService {
                 } else {
                     consumed_budget = bank.process_stale_slot_with_budget(
                         consumed_budget,
-                        SHRUNKEN_ACCOUNT_PER_INTERVAL,
+                        *SHRUNKEN_ACCOUNT_PER_INTERVAL,
                     );
 
                     if bank.block_height() - last_cleaned_block_height
-                        > (CLEAN_INTERVAL_BLOCKS + thread_rng().gen_range(0, 10))
+                        > (CFG.CLEAN_INTERVAL_BLOCKS + thread_rng().gen_range(0, 10))
                     {
                         bank.clean_accounts(true);
                         last_cleaned_block_height = bank.block_height();
                     }
                 }
 
-                sleep(Duration::from_millis(INTERVAL_MS));
+                sleep(Duration::from_millis(CFG.INTERVAL_MS));
             })
             .unwrap();
         Self { t_background }

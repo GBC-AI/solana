@@ -15,7 +15,7 @@ use solana_ledger::{
     shred::Nonce,
 };
 use solana_measure::measure::Measure;
-use solana_runtime::{bank::Bank, bank_forks::BankForks, commitment::VOTE_THRESHOLD_SIZE};
+use solana_runtime::{bank::Bank, bank_forks::BankForks, commitment::CFG as COMMITMENT_CFG};
 use solana_sdk::{clock::Slot, epoch_schedule::EpochSchedule, pubkey::Pubkey, timing::timestamp};
 use std::{
     collections::{HashMap, HashSet},
@@ -611,7 +611,7 @@ impl RepairService {
                                 })
                                 .sum();
                             if total_completed_slot_stake as f64 / total_stake as f64
-                                > VOTE_THRESHOLD_SIZE
+                                > COMMITMENT_CFG.VOTE_THRESHOLD_SIZE
                             {
                                 Some(dead_slot)
                             } else {

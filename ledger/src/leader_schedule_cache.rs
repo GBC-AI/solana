@@ -261,7 +261,7 @@ mod tests {
         blockstore::make_slot_entries,
         genesis_utils::{
             create_genesis_config, create_genesis_config_with_leader, GenesisConfigInfo,
-            BOOTSTRAP_VALIDATOR_LAMPORTS,
+            GENESIS_CFG,
         },
         get_tmp_ledger_path,
         staking_utils::tests::setup_vote_and_stake_accounts,
@@ -380,9 +380,9 @@ mod tests {
     fn test_next_leader_slot() {
         let pubkey = solana_sdk::pubkey::new_rand();
         let mut genesis_config = create_genesis_config_with_leader(
-            BOOTSTRAP_VALIDATOR_LAMPORTS,
+            GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS,
             &pubkey,
-            BOOTSTRAP_VALIDATOR_LAMPORTS,
+            GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS,
         )
         .genesis_config;
         genesis_config.epoch_schedule = EpochSchedule::custom(
@@ -433,9 +433,9 @@ mod tests {
     fn test_next_leader_slot_blockstore() {
         let pubkey = solana_sdk::pubkey::new_rand();
         let mut genesis_config = create_genesis_config_with_leader(
-            BOOTSTRAP_VALIDATOR_LAMPORTS,
+            GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS,
             &pubkey,
-            BOOTSTRAP_VALIDATOR_LAMPORTS,
+            GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS,
         )
         .genesis_config;
         genesis_config.epoch_schedule.warmup = false;
@@ -533,7 +533,7 @@ mod tests {
             &mint_keypair,
             &vote_account,
             &validator_identity,
-            BOOTSTRAP_VALIDATOR_LAMPORTS,
+            GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS,
         );
         let node_pubkey = validator_identity.pubkey();
 

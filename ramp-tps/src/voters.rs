@@ -23,9 +23,9 @@ use std::{
     time::Duration,
 };
 
-// The percentage of leader slots that validators complete in order to receive the stake
-// reward at the end of a TPS round.
-const MIN_LEADER_SLOT_PCT: f64 = 80.0;
+toml_config::package_config! {
+    MIN_LEADER_SLOT_PCT: f64,
+}
 
 #[derive(Default)]
 pub struct LeaderRecord {
@@ -44,7 +44,7 @@ impl LeaderRecord {
     }
 
     pub fn healthy(&self) -> bool {
-        self.completed_slot_pct() >= MIN_LEADER_SLOT_PCT
+        self.completed_slot_pct() >= CFG.MIN_LEADER_SLOT_PCT
     }
 }
 

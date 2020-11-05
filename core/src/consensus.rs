@@ -5,7 +5,7 @@ use crate::{
 use chrono::prelude::*;
 use solana_ledger::{ancestor_iterator::AncestorIterator, blockstore::Blockstore, blockstore_db};
 use solana_measure::measure::Measure;
-use solana_runtime::{bank::Bank, bank_forks::BankForks, commitment::VOTE_THRESHOLD_SIZE};
+use solana_runtime::{bank::Bank, bank_forks::BankForks, commitment::CFG as COMMITMENT_CFG};
 use solana_sdk::{
     account::Account,
     clock::{Slot, UnixTimestamp},
@@ -119,7 +119,7 @@ impl Default for Tower {
         let mut tower = Self {
             node_pubkey: Pubkey::default(),
             threshold_depth: VOTE_THRESHOLD_DEPTH,
-            threshold_size: VOTE_THRESHOLD_SIZE,
+            threshold_size: COMMITMENT_CFG.VOTE_THRESHOLD_SIZE,
             lockouts: VoteState::default(),
             last_vote: Vote::default(),
             last_timestamp: BlockTimestamp::default(),

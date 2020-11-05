@@ -100,9 +100,7 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::genesis_utils::{
-        create_genesis_config, GenesisConfigInfo, BOOTSTRAP_VALIDATOR_LAMPORTS,
-    };
+    use crate::genesis_utils::{create_genesis_config, GenesisConfigInfo, GENESIS_CFG};
     use solana_sdk::{
         account::from_account,
         clock::Clock,
@@ -178,10 +176,10 @@ pub(crate) mod tests {
     #[test]
     fn test_epoch_stakes_and_lockouts() {
         solana_logger::setup();
-        let stake = BOOTSTRAP_VALIDATOR_LAMPORTS * 100;
+        let stake = GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS * 100;
         let leader_stake = Stake {
             delegation: Delegation {
-                stake: BOOTSTRAP_VALIDATOR_LAMPORTS,
+                stake: GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS,
                 activation_epoch: std::u64::MAX, // mark as bootstrap
                 ..Delegation::default()
             },

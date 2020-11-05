@@ -13,7 +13,10 @@ use std::{
     ops::{Range, RangeBounds},
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
-const ITER_BATCH_SIZE: usize = 1000;
+
+toml_config::package_config! {
+    ITER_BATCH_SIZE: usize,
+}
 
 pub type SlotList<T> = Vec<(Slot, T)>;
 pub type SlotSlice<'s, T> = &'s [(Slot, T)];
@@ -164,7 +167,7 @@ impl<'a, T: 'static + Clone> Iterator for AccountsIndexIterator<'a, T> {
             .unwrap()
             .range((self.start_bound, self.end_bound))
             .map(|(pubkey, account_map_entry)| (*pubkey, account_map_entry.clone()))
-            .take(ITER_BATCH_SIZE)
+            .take(CFG.ITER_BATCH_SIZE)
             .collect();
 
         if chunk.is_empty() {
@@ -685,34 +688,39 @@ mod tests {
 
     #[test]
     fn test_range_scan_accounts() {
-        let (index, mut pubkeys) = setup_accounts_index_keys(3 * ITER_BATCH_SIZE);
+        let (index, mut pubkeys) = setup_accounts_index_keys(3 * CFG.ITER_BATCH_SIZE);
         pubkeys.sort();
 
         run_test_range_indexes(&index, &pubkeys, None, None);
 
-        run_test_range_indexes(&index, &pubkeys, Some(ITER_BATCH_SIZE), None);
-
-        run_test_range_indexes(&index, &pubkeys, None, Some(2 * ITER_BATCH_SIZE as usize));
+        run_test_range_indexes(&index, &pubkeys, Some(CFG.ITER_BATCH_SIZE), None);
 
         run_test_range_indexes(
             &index,
             &pubkeys,
-            Some(ITER_BATCH_SIZE as usize),
-            Some(2 * ITER_BATCH_SIZE as usize),
+            None,
+            Some(2 * CFG.ITER_BATCH_SIZE as usize),
         );
 
         run_test_range_indexes(
             &index,
             &pubkeys,
-            Some(ITER_BATCH_SIZE as usize),
-            Some(2 * ITER_BATCH_SIZE as usize - 1),
+            Some(CFG.ITER_BATCH_SIZE as usize),
+            Some(2 * CFG.ITER_BATCH_SIZE as usize),
         );
 
         run_test_range_indexes(
             &index,
             &pubkeys,
-            Some(ITER_BATCH_SIZE - 1 as usize),
-            Some(2 * ITER_BATCH_SIZE as usize + 1),
+            Some(CFG.ITER_BATCH_SIZE as usize),
+            Some(2 * CFG.ITER_BATCH_SIZE as usize - 1),
+        );
+
+        run_test_range_indexes(
+            &index,
+            &pubkeys,
+            Some(CFG.ITER_BATCH_SIZE - 1 as usize),
+            Some(2 * CFG.ITER_BATCH_SIZE as usize + 1),
         );
     }
 
@@ -731,9 +739,9 @@ mod tests {
     fn test_scan_accounts() {
         run_test_scan_accounts(0);
         run_test_scan_accounts(1);
-        run_test_scan_accounts(ITER_BATCH_SIZE * 10);
-        run_test_scan_accounts(ITER_BATCH_SIZE * 10 - 1);
-        run_test_scan_accounts(ITER_BATCH_SIZE * 10 + 1);
+        run_test_scan_accounts(CFG.ITER_BATCH_SIZE * 10);
+        run_test_scan_accounts(CFG.ITER_BATCH_SIZE * 10 - 1);
+        run_test_scan_accounts(CFG.ITER_BATCH_SIZE * 10 + 1);
     }
 
     #[test]

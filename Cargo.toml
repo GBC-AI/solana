@@ -68,6 +68,7 @@ members = [
     "cli",
     "rayon-threadlimit",
     "watchtower",
+    "toml-config",
 ]
 
 exclude = [

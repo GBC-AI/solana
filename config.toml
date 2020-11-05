@@ -1,0 +1,29 @@
+[solana-sdk.clock]
+
+[solana-runtime]
+INTERVAL_MS = 100 # u64
+SHRUNKEN_ACCOUNT_PER_SEC = 250 # usize
+CLEAN_INTERVAL_BLOCKS = 100 # u64
+
+PAGE_SIZE = 4096 # u64
+DEFAULT_NUM_THREADS = 8 # u32
+DEFAULT_NUM_DIRS = 4 # u32
+
+ITER_BATCH_SIZE = 1000 # u32
+
+MAX_LEADER_SCHEDULE_STAKES = 5 # Epoch
+
+VOTE_THRESHOLD_SIZE = 0.6666667 # f64
+
+# The default stake placed with the bootstrap validator
+BOOTSTRAP_VALIDATOR_LAMPORTS = 42 # u64
+
+MAX_STREAM_SIZE = 3422552064 # = 32 * 1024 * 1024 * 1024 # u64
+
+NUM_BLOCKHASH_CONFIRMATIONS = 3 # usize
+
+
+
+[solana-ramp-tps]
+#  The percentage of leader slots that validators complete in order to receive the stake reward at the end of a TPS round.
+MIN_LEADER_SLOT_PCT = 80.0

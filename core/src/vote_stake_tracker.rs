@@ -1,4 +1,4 @@
-use solana_runtime::commitment::VOTE_THRESHOLD_SIZE;
+use solana_runtime::commitment::CFG as COMMITMENT_CFG;
 use solana_sdk::pubkey::Pubkey;
 use std::{collections::HashSet, sync::Arc};
 
@@ -22,7 +22,8 @@ impl VoteStakeTracker {
         let is_new = !self.voted.contains(&vote_pubkey);
         if is_new {
             self.voted.insert(vote_pubkey);
-            let supermajority_stake = (total_stake as f64 * VOTE_THRESHOLD_SIZE) as u64;
+            let supermajority_stake =
+                (total_stake as f64 * COMMITMENT_CFG.VOTE_THRESHOLD_SIZE) as u64;
             let old_stake = self.stake;
             let new_stake = self.stake + stake;
             self.stake = new_stake;

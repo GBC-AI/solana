@@ -2,7 +2,9 @@ use solana_sdk::{clock::Slot, commitment_config::CommitmentLevel};
 use solana_vote_program::vote_state::MAX_LOCKOUT_HISTORY;
 use std::collections::HashMap;
 
-pub const VOTE_THRESHOLD_SIZE: f64 = 2f64 / 3f64;
+toml_config::package_config! {
+    VOTE_THRESHOLD_SIZE: f64,
+}
 
 pub type BlockCommitmentArray = [u64; MAX_LOCKOUT_HISTORY + 1];
 
@@ -136,7 +138,7 @@ impl BlockCommitmentCache {
     }
 
     pub fn get_confirmation_count(&self, slot: Slot) -> Option<usize> {
-        self.get_lockout_count(slot, VOTE_THRESHOLD_SIZE)
+        self.get_lockout_count(slot, CFG.VOTE_THRESHOLD_SIZE)
     }
 
     // Returns the lowest level at which at least `minimum_stake_percentage` of the total epoch

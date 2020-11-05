@@ -29,10 +29,10 @@ pub struct TestValidatorOptions {
 
 impl Default for TestValidatorOptions {
     fn default() -> Self {
-        use solana_ledger::genesis_utils::BOOTSTRAP_VALIDATOR_LAMPORTS;
+        use solana_ledger::genesis_utils::GENESIS_CFG;
         TestValidatorOptions {
             fees: 0,
-            bootstrap_validator_lamports: BOOTSTRAP_VALIDATOR_LAMPORTS,
+            bootstrap_validator_lamports: GENESIS_CFG.BOOTSTRAP_VALIDATOR_LAMPORTS,
             mint_lamports: 1_000_000,
         }
     }

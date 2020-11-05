@@ -61,7 +61,9 @@ pub(crate) enum SerdeStyle {
     NEWER,
 }
 
-const MAX_STREAM_SIZE: u64 = 32 * 1024 * 1024 * 1024;
+toml_config::package_config! {
+    MAX_STREAM_SIZE: u64,
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, AbiExample)]
 struct AccountsDbFields<T>(HashMap<Slot, Vec<T>>, u64, Slot, BankHashInfo);
@@ -111,7 +113,7 @@ where
     T: DeserializeOwned,
 {
     bincode::options()
-        .with_limit(MAX_STREAM_SIZE)
+        .with_limit(CFG.MAX_STREAM_SIZE)
         .with_fixint_encoding()
         .allow_trailing_bytes()
         .deserialize_from::<R, T>(reader)

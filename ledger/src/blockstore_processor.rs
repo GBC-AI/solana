@@ -21,7 +21,7 @@ use solana_runtime::{
     },
     bank_forks::BankForks,
     bank_utils,
-    commitment::VOTE_THRESHOLD_SIZE,
+    commitment::CFG as COMMITMENT_CFG,
     transaction_batch::TransactionBatch,
     transaction_utils::OrderedIterator,
     vote_sender_types::ReplayVoteSender,
@@ -948,7 +948,7 @@ fn supermajority_root(roots: &[(Slot, u64)], total_epoch_stake: u64) -> Option<S
     for (root, stake) in roots.iter() {
         assert!(*root <= prev_root);
         total += stake;
-        if total as f64 / total_epoch_stake as f64 > VOTE_THRESHOLD_SIZE {
+        if total as f64 / total_epoch_stake as f64 > COMMITMENT_CFG.VOTE_THRESHOLD_SIZE {
             return Some(*root);
         }
         prev_root = *root;
