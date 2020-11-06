@@ -1,7 +1,7 @@
 //! The `shred_fetch_stage` pulls shreds from UDP sockets and sends it to a channel.
 
 use bv::BitVec;
-use solana_ledger::blockstore::MAX_DATA_SHREDS_PER_SLOT;
+use solana_ledger::blockstore::CFG as BLOCKSTORE_CFG;
 use solana_ledger::shred::{
     CODING_SHRED, DATA_SHRED, OFFSET_OF_SHRED_INDEX, OFFSET_OF_SHRED_SLOT, OFFSET_OF_SHRED_TYPE,
     SIZE_OF_SHRED_INDEX, SIZE_OF_SHRED_SLOT,
@@ -47,7 +47,8 @@ impl ShredFetchStage {
 
         if index_end <= p.meta.size {
             if let Ok(index) = limited_deserialize::<u32>(&p.data[index_start..index_end]) {
-                if index < MAX_DATA_SHREDS_PER_SLOT as u32 && slot_end <= p.meta.size {
+                if index < BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT as u32 && slot_end <= p.meta.size
+                {
                     if let Ok(slot) = limited_deserialize::<Slot>(&p.data[slot_start..slot_end]) {
                         return Some((slot, index));
                     } else {
@@ -90,7 +91,10 @@ impl ShredFetchStage {
                         shreds_received
                             .entry((slot, shred_type))
                             .or_insert_with(|| {
-                                BitVec::new_fill(false, MAX_DATA_SHREDS_PER_SLOT as u64)
+                                BitVec::new_fill(
+                                    false,
+                                    BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT as u64,
+                                )
                             });
                     if !slot_received.get(index.into()) {
                         p.meta.discard = false;
@@ -383,7 +387,7 @@ mod tests {
         );
         assert!(packet.meta.discard);
 
-        let index = MAX_DATA_SHREDS_PER_SLOT as u32;
+        let index = BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT as u32;
         let shred = Shred::new_from_data(5, index, 0, None, true, true, 0, 0, 0);
         shred.copy_to_packet(&mut packet);
         ShredFetchStage::process_packet(

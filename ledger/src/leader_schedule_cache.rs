@@ -16,12 +16,15 @@ use std::{
 };
 
 type CachedSchedules = (HashMap<Epoch, Arc<LeaderSchedule>>, VecDeque<u64>);
-const MAX_SCHEDULES: usize = 10;
+
+toml_config::package_config! {
+    MAX_SCHEDULES: usize,
+}
 
 struct CacheCapacity(usize);
 impl Default for CacheCapacity {
     fn default() -> Self {
-        CacheCapacity(MAX_SCHEDULES)
+        CacheCapacity(CFG.MAX_SCHEDULES)
     }
 }
 
@@ -281,7 +284,7 @@ mod tests {
         let bank = Bank::new(&genesis_config);
         let cache = LeaderScheduleCache::new_from_bank(&bank);
         assert_eq!(bank.slot(), 0);
-        assert_eq!(cache.max_schedules(), MAX_SCHEDULES);
+        assert_eq!(cache.max_schedules(), CFG.MAX_SCHEDULES);
 
         // Epoch schedule for all epochs in the range:
         // [0, leader_schedule_epoch(bank.slot())] should
@@ -315,16 +318,16 @@ mod tests {
     fn test_retain_latest() {
         let mut cached_schedules = HashMap::new();
         let mut order = VecDeque::new();
-        for i in 0..=MAX_SCHEDULES {
+        for i in 0..=CFG.MAX_SCHEDULES {
             cached_schedules.insert(i as u64, Arc::new(LeaderSchedule::default()));
             order.push_back(i as u64);
         }
-        LeaderScheduleCache::retain_latest(&mut cached_schedules, &mut order, MAX_SCHEDULES);
-        assert_eq!(cached_schedules.len(), MAX_SCHEDULES);
+        LeaderScheduleCache::retain_latest(&mut cached_schedules, &mut order, CFG.MAX_SCHEDULES);
+        assert_eq!(cached_schedules.len(), CFG.MAX_SCHEDULES);
         let mut keys: Vec<_> = cached_schedules.keys().cloned().collect();
         keys.sort();
-        let expected: Vec<_> = (1..=MAX_SCHEDULES as u64).collect();
-        let expected_order: VecDeque<_> = (1..=MAX_SCHEDULES as u64).collect();
+        let expected: Vec<_> = (1..=CFG.MAX_SCHEDULES as u64).collect();
+        let expected_order: VecDeque<_> = (1..=CFG.MAX_SCHEDULES as u64).collect();
         assert_eq!(expected, keys);
         assert_eq!(expected_order, order);
     }
@@ -626,7 +629,7 @@ mod tests {
 
         // Max schedules must be greater than 0
         cache.set_max_schedules(0);
-        assert_eq!(cache.max_schedules(), MAX_SCHEDULES);
+        assert_eq!(cache.max_schedules(), CFG.MAX_SCHEDULES);
 
         cache.set_max_schedules(std::usize::MAX);
         assert_eq!(cache.max_schedules(), std::usize::MAX);

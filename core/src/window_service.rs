@@ -18,7 +18,7 @@ use rayon::iter::IntoParallelRefMutIterator;
 use rayon::iter::ParallelIterator;
 use rayon::ThreadPool;
 use solana_ledger::{
-    blockstore::{self, Blockstore, BlockstoreInsertionMetrics, MAX_DATA_SHREDS_PER_SLOT},
+    blockstore::{self, Blockstore, BlockstoreInsertionMetrics, CFG as BLOCKSTORE_CFG},
     leader_schedule_cache::LeaderScheduleCache,
     shred::{Nonce, Shred},
 };
@@ -70,7 +70,7 @@ pub fn should_retransmit_and_persist(
         } else if shred.version() != shred_version {
             inc_new_counter_debug!("streamer-recv_window-incorrect_shred_version", 1);
             false
-        } else if shred.index() >= MAX_DATA_SHREDS_PER_SLOT as u32 {
+        } else if shred.index() >= BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT as u32 {
             inc_new_counter_warn!("streamer-recv_window-shred_index_overrun", 1);
             false
         } else {
@@ -227,7 +227,9 @@ where
                                     // of max shreds per slot. However, let the current shred
                                     // get retransmitted. It'll allow peer nodes to see this shred
                                     // and trigger them to mark the slot as dead.
-                                    if shred.index() >= (MAX_DATA_SHREDS_PER_SLOT - 1) as u32 {
+                                    if shred.index()
+                                        >= (BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT - 1) as u32
+                                    {
                                         let _ = blockstore.set_dead_slot(shred.slot());
                                     }
                                     packet.meta.slot = shred.slot();

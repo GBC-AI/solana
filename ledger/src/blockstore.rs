@@ -76,14 +76,14 @@ thread_local!(static PAR_THREAD_POOL_ALL_CPUS: RefCell<ThreadPool> = RefCell::ne
                     .build()
                     .unwrap()));
 
-pub const MAX_COMPLETED_SLOTS_IN_CHANNEL: usize = 100_000;
-pub const MAX_TURBINE_PROPAGATION_IN_MS: u64 = 100;
-pub const MAX_TURBINE_DELAY_IN_TICKS: u64 = MAX_TURBINE_PROPAGATION_IN_MS / MS_PER_TICK;
-
-// An upper bound on maximum number of data shreds we can handle in a slot
-// 32K shreds would allow ~320K peak TPS
-// (32K shreds per slot * 4 TX per shred * 2.5 slots per sec)
-pub const MAX_DATA_SHREDS_PER_SLOT: usize = 32_768;
+toml_config::package_config! {
+    MAX_COMPLETED_SLOTS_IN_CHANNEL: usize,
+    MAX_TURBINE_PROPAGATION_IN_MS: u64,
+    MAX_DATA_SHREDS_PER_SLOT: usize,
+}
+toml_config::derived_values! {
+    MAX_TURBINE_DELAY_IN_TICKS: u64 = CFG.MAX_TURBINE_PROPAGATION_IN_MS / MS_PER_TICK;
+}
 
 pub type CompletedSlotsReceiver = Receiver<Vec<u64>>;
 type CompletedRanges = Vec<(u32, u32)>;
@@ -364,7 +364,7 @@ impl Blockstore {
             Self::open_with_access_type(ledger_path, AccessType::PrimaryOnly, recovery_mode)?;
         let (ledger_signal_sender, ledger_signal_receiver) = sync_channel(1);
         let (completed_slots_sender, completed_slots_receiver) =
-            sync_channel(MAX_COMPLETED_SLOTS_IN_CHANNEL);
+            sync_channel(CFG.MAX_COMPLETED_SLOTS_IN_CHANNEL);
         blockstore.new_shreds_signals = vec![ledger_signal_sender];
         blockstore.completed_slots_senders = vec![completed_slots_sender];
 
@@ -1521,7 +1521,7 @@ impl Blockstore {
                 &db_iterator.value().expect("couldn't read value"),
             ));
 
-            if ticks_since_first_insert < reference_tick + MAX_TURBINE_DELAY_IN_TICKS {
+            if ticks_since_first_insert < reference_tick + *MAX_TURBINE_DELAY_IN_TICKS {
                 // The higher index holes have not timed out yet
                 break 'outer;
             }

@@ -50,6 +50,9 @@ tempfile = "3.1.0"
 thiserror = "1.0"
 tokio = { version = "0.2.22", features = ["full"] }
 trees = "0.2.1"
+serde_derive = "1.0.117"
+
+toml-config = { path = "../toml-config" }
 
 [dependencies.rocksdb]
 # Avoid the vendored bzip2 within rocksdb-sys that can cause linker conflicts

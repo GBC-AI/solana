@@ -4230,6 +4230,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_bytes",
+ "serde_derive",
  "sha2",
  "solana-bpf-loader-program",
  "solana-budget-program",
@@ -4249,6 +4250,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio 0.2.22",
+ "toml-config",
  "trees",
 ]
 

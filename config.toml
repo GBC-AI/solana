@@ -64,3 +64,17 @@ NUM_BLOCKHASH_CONFIRMATIONS = 3 # usize
 [solana-ramp-tps]
 #  The percentage of leader slots that validators complete in order to receive the stake reward at the end of a TPS round.
 MIN_LEADER_SLOT_PCT = 80.0
+
+[solana-ledger]
+# Attempt to upload this many blocks in parallel
+NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL = 32 # usize
+MAX_COMPLETED_SLOTS_IN_CHANNEL = 100_000 # usize
+MAX_TURBINE_PROPAGATION_IN_MS = 100 # u64
+
+# An upper bound on maximum number of data shreds we can handle in a slot
+# 32K shreds would allow ~320K peak TPS
+# (32K shreds per slot * 4 TX per shred * 2.5 slots per sec)
+MAX_DATA_SHREDS_PER_SLOT = 32_768 # usize
+
+SIGN_SHRED_GPU_MIN = 256 # usize
+MAX_SCHEDULES = 10 # usize

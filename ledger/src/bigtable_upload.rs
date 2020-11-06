@@ -13,11 +13,13 @@ use std::{
 };
 use tokio::time::delay_for;
 
-// Attempt to upload this many blocks in parallel
-const NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL: usize = 32;
-
-// Read up to this many blocks from blockstore before blocking on the upload process
-const BLOCK_READ_AHEAD_DEPTH: usize = NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL * 2;
+toml_config::package_config! {
+    NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL: usize,
+}
+toml_config::derived_values! {
+    // Read up to this many blocks from blockstore before blocking on the upload process
+    BLOCK_READ_AHEAD_DEPTH: usize = CFG.NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL * 2;
+}
 
 pub async fn upload_confirmed_blocks(
     blockstore: Arc<Blockstore>,
@@ -126,7 +128,7 @@ pub async fn upload_confirmed_blocks(
     let (_loader_thread, receiver) = {
         let exit = exit.clone();
 
-        let (sender, receiver) = std::sync::mpsc::sync_channel(BLOCK_READ_AHEAD_DEPTH);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(*BLOCK_READ_AHEAD_DEPTH);
         (
             std::thread::spawn(move || {
                 let mut measure = Measure::start("block loader thread");
@@ -146,7 +148,7 @@ pub async fn upload_confirmed_blocks(
                         }
                     };
 
-                    if i > 0 && i % NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL == 0 {
+                    if i > 0 && i % CFG.NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL == 0 {
                         info!(
                             "{}% of blocks processed ({}/{})",
                             i * 100 / blocks_to_upload.len(),
@@ -166,7 +168,7 @@ pub async fn upload_confirmed_blocks(
     use futures::stream::StreamExt;
 
     let mut stream =
-        tokio::stream::iter(receiver.into_iter()).chunks(NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL);
+        tokio::stream::iter(receiver.into_iter()).chunks(CFG.NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL);
 
     while let Some(blocks) = stream.next().await {
         if exit.load(Ordering::Relaxed) {
