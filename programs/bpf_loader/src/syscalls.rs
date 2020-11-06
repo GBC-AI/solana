@@ -87,9 +87,9 @@ impl SyscallConsume for Rc<RefCell<dyn ComputeMeter>> {
 /// Simple bump allocator, never frees
 use crate::allocator_bump::BPFAllocator;
 
-/// Default program heap size, allocators
-/// are expected to enforce this
-const DEFAULT_HEAP_SIZE: usize = 32 * 1024;
+toml_config::package_config! {
+    DEFAULT_HEAP_SIZE: usize,
+}
 
 pub fn register_syscalls<'a>(
     loader_id: &'a Pubkey,
@@ -197,7 +197,7 @@ pub fn register_syscalls<'a>(
 
     // Memory allocator
 
-    let heap = vec![0_u8; DEFAULT_HEAP_SIZE];
+    let heap = vec![0_u8; CFG.DEFAULT_HEAP_SIZE];
     let heap_region = MemoryRegion::new_from_slice(&heap, MM_HEAP_START);
     vm.register_syscall_with_context_ex(
         "sol_alloc_free_",

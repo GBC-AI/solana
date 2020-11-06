@@ -3709,14 +3709,18 @@ dependencies = [
  "bincode",
  "byteorder",
  "curve25519-dalek 3.0.0",
+ "lazy_static",
  "num-derive",
  "num-traits",
  "rand 0.7.3",
  "rustversion",
+ "serde",
+ "serde_derive",
  "solana-runtime",
  "solana-sdk 1.5.0",
  "solana_rbpf",
  "thiserror",
+ "toml-config",
 ]
 
 [[package]]

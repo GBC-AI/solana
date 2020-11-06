@@ -19,6 +19,11 @@ solana-sdk = { path = "../../sdk", version = "1.5.0" }
 solana_rbpf = "=0.1.32"
 thiserror = "1.0"
 
+toml-config = { path = "../../toml-config" }
+serde_derive = "1.0.117"
+lazy_static = "1.4.0"
+serde = "1.0.117"
+
 [dev-dependencies]
 rand = "0.7.3"
 rustversion = "1.0.3"

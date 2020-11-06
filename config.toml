@@ -78,3 +78,8 @@ MAX_DATA_SHREDS_PER_SLOT = 32_768 # usize
 
 SIGN_SHRED_GPU_MIN = 256 # usize
 MAX_SCHEDULES = 10 # usize
+
+
+[solana-bpf-loader-program]
+# Default program heap size, allocators are expected to enforce this
+DEFAULT_HEAP_SIZE = 32_768 # usize = 32kb
