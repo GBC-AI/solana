@@ -4,7 +4,7 @@
 // hash on gossip. Monitor gossip for messages from validators in the --trusted-validators
 // set and halt the node if a mismatch is detected.
 
-use crate::cluster_info::{ClusterInfo, MAX_SNAPSHOT_HASHES};
+use crate::cluster_info::{ClusterInfo, CFG};
 use solana_runtime::snapshot_package::{
     AccountsPackage, AccountsPackageReceiver, AccountsPackageSender,
 };
@@ -96,7 +96,7 @@ impl AccountsHashVerifier {
             hashes.push((accounts_package.root, accounts_package.hash));
         }
 
-        while hashes.len() > MAX_SNAPSHOT_HASHES {
+        while hashes.len() > CFG.MAX_SNAPSHOT_HASHES {
             hashes.remove(0);
         }
 
@@ -229,7 +229,7 @@ mod tests {
         let trusted_validators = HashSet::new();
         let exit = Arc::new(AtomicBool::new(false));
         let mut hashes = vec![];
-        for i in 0..MAX_SNAPSHOT_HASHES + 1 {
+        for i in 0..CFG.MAX_SNAPSHOT_HASHES + 1 {
             let snapshot_links = TempDir::new().unwrap();
             let accounts_package = AccountsPackage {
                 hash: hash(&[i as u8]),
@@ -260,14 +260,14 @@ mod tests {
             .get_accounts_hash_for_node(&keypair.pubkey(), |c| c.clone())
             .unwrap();
         info!("{:?}", cluster_hashes);
-        assert_eq!(hashes.len(), MAX_SNAPSHOT_HASHES);
-        assert_eq!(cluster_hashes.len(), MAX_SNAPSHOT_HASHES);
+        assert_eq!(hashes.len(), CFG.MAX_SNAPSHOT_HASHES);
+        assert_eq!(cluster_hashes.len(), CFG.MAX_SNAPSHOT_HASHES);
         assert_eq!(cluster_hashes[0], (101, hash(&[1])));
         assert_eq!(
-            cluster_hashes[MAX_SNAPSHOT_HASHES - 1],
+            cluster_hashes[CFG.MAX_SNAPSHOT_HASHES - 1],
             (
-                100 + MAX_SNAPSHOT_HASHES as u64,
-                hash(&[MAX_SNAPSHOT_HASHES as u8])
+                100 + CFG.MAX_SNAPSHOT_HASHES as u64,
+                hash(&[CFG.MAX_SNAPSHOT_HASHES as u8])
             )
         );
     }

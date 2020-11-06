@@ -16,7 +16,7 @@ use crate::{
     contact_info::ContactInfo,
     crds_gossip::CrdsGossip,
     crds_gossip_error::CrdsGossipError,
-    crds_gossip_pull::{CrdsFilter, ProcessPullStats, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS},
+    crds_gossip_pull::{CrdsFilter, ProcessPullStats, CFG as GOSSIP_PULL_CFG},
     crds_value::{
         self, CrdsData, CrdsValue, CrdsValueLabel, EpochSlotsIndex, LowestSlot, SnapshotHash,
         Version, Vote, MAX_WALLCLOCK,
@@ -79,28 +79,27 @@ use std::{
 pub const VALIDATOR_PORT_RANGE: PortRange = (8000, 10_000);
 pub const MINIMUM_VALIDATOR_PORT_RANGE_WIDTH: u16 = 10; // VALIDATOR_PORT_RANGE must be at least this wide
 
-/// The Data plane fanout size, also used as the neighborhood size
-pub const DATA_PLANE_FANOUT: usize = 200;
-/// milliseconds we sleep for between gossip requests
-pub const GOSSIP_SLEEP_MILLIS: u64 = 100;
-/// The maximum size of a bloom filter
-pub const MAX_BLOOM_SIZE: usize = MAX_CRDS_OBJECT_SIZE;
-pub const MAX_CRDS_OBJECT_SIZE: usize = 928;
-/// The maximum size of a protocol payload
-const MAX_PROTOCOL_PAYLOAD_SIZE: u64 = PACKET_DATA_SIZE as u64 - MAX_PROTOCOL_HEADER_SIZE;
-/// The largest protocol header size
-const MAX_PROTOCOL_HEADER_SIZE: u64 = 214;
+toml_config::package_config! {
+    DATA_PLANE_FANOUT: usize,
+    GOSSIP_SLEEP_MILLIS: u64,
+    MAX_CRDS_OBJECT_SIZE: usize,
+    MAX_PROTOCOL_HEADER_SIZE: u64,
+    MAX_SNAPSHOT_HASHES: usize ,
+    GOSSIP_PING_CACHE_CAPACITY: usize,
+    GOSSIP_PING_CACHE_TTL: u64,
+}
+
+toml_config::derived_values! {
+    MAX_BLOOM_SIZE: usize = CFG.MAX_CRDS_OBJECT_SIZE;
+    MAX_PROTOCOL_PAYLOAD_SIZE: u64 = PACKET_DATA_SIZE as u64 - CFG.MAX_PROTOCOL_HEADER_SIZE;
+}
+
 /// A hard limit on incoming gossip messages
 /// Chosen to be able to handle 1Gbps of pure gossip traffic
 /// 128MB/PACKET_DATA_SIZE
 const MAX_GOSSIP_TRAFFIC: usize = 128_000_000 / PACKET_DATA_SIZE;
 
-/// Keep the number of snapshot hashes a node publishes under MAX_PROTOCOL_PAYLOAD_SIZE
-pub const MAX_SNAPSHOT_HASHES: usize = 16;
-/// Number of bytes in the randomly generated token sent with ping messages.
-const GOSSIP_PING_TOKEN_SIZE: usize = 32;
-const GOSSIP_PING_CACHE_CAPACITY: usize = 16384;
-const GOSSIP_PING_CACHE_TTL: Duration = Duration::from_secs(640);
+pub const GOSSIP_PING_TOKEN_SIZE: usize = 32;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClusterInfoError {
@@ -488,8 +487,8 @@ impl ClusterInfo {
             outbound_budget: DataBudget::default(),
             my_contact_info: RwLock::new(contact_info),
             ping_cache: RwLock::new(PingCache::new(
-                GOSSIP_PING_CACHE_TTL,
-                GOSSIP_PING_CACHE_CAPACITY,
+                Duration::from_secs(CFG.GOSSIP_PING_CACHE_TTL),
+                CFG.GOSSIP_PING_CACHE_CAPACITY,
             )),
             id,
             stats: GossipStats::default(),
@@ -880,7 +879,7 @@ impl ClusterInfo {
     }
 
     pub fn push_accounts_hashes(&self, accounts_hashes: Vec<(Slot, Hash)>) {
-        if accounts_hashes.len() > MAX_SNAPSHOT_HASHES {
+        if accounts_hashes.len() > CFG.MAX_SNAPSHOT_HASHES {
             warn!(
                 "accounts hashes too large, ignored: {}",
                 accounts_hashes.len(),
@@ -893,7 +892,7 @@ impl ClusterInfo {
     }
 
     pub fn push_snapshot_hashes(&self, snapshot_hashes: Vec<(Slot, Hash)>) {
-        if snapshot_hashes.len() > MAX_SNAPSHOT_HASHES {
+        if snapshot_hashes.len() > CFG.MAX_SNAPSHOT_HASHES {
             warn!(
                 "snapshot hashes too large, ignored: {}",
                 snapshot_hashes.len(),
@@ -1455,7 +1454,9 @@ impl ClusterInfo {
                 } else {
                     let now = timestamp();
                     // Only consider pulling from the entrypoint periodically to avoid spamming it
-                    if timestamp() - entrypoint.wallclock <= CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
+                    if timestamp() - entrypoint.wallclock
+                        <= GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2
+                    {
                         false
                     } else {
                         entrypoint.wallclock = now;
@@ -1494,7 +1495,7 @@ impl ClusterInfo {
                     .unwrap_or_else(|| panic!("self_id invalid {}", self.id()));
                 r_gossip
                     .pull
-                    .build_crds_filters(thread_pool, &r_gossip.crds, MAX_BLOOM_SIZE)
+                    .build_crds_filters(thread_pool, &r_gossip.crds, *MAX_BLOOM_SIZE)
                     .into_iter()
                     .for_each(|filter| pulls.push((id, filter, gossip, self_info.clone())));
             }
@@ -1509,7 +1510,7 @@ impl ClusterInfo {
         let mut messages = vec![];
         let mut payload = vec![];
         let base_size = serialized_size(&payload).expect("Couldn't check size");
-        let max_payload_size = MAX_PROTOCOL_PAYLOAD_SIZE - base_size;
+        let max_payload_size = *MAX_PROTOCOL_PAYLOAD_SIZE - base_size;
         let mut payload_size = 0;
         for msg in msgs {
             let msg_size = msg.size();
@@ -1552,7 +1553,7 @@ impl ClusterInfo {
             let r_gossip =
                 self.time_gossip_read_lock("new_pull_reqs", &self.stats.new_pull_requests);
             r_gossip
-                .new_pull_request(thread_pool, now, gossip_validators, stakes, MAX_BLOOM_SIZE)
+                .new_pull_request(thread_pool, now, gossip_validators, stakes, *MAX_BLOOM_SIZE)
                 .ok()
                 .into_iter()
                 .filter_map(|(peer, filters, me)| {
@@ -1717,7 +1718,7 @@ impl ClusterInfo {
                 epoch_schedule.get_slots_in_epoch(epoch) * DEFAULT_MS_PER_SLOT
             } else {
                 inc_new_counter_info!("cluster_info-purge-no_working_bank", 1);
-                CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+                GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
             }
         };
         let timeouts = self.gossip.read().unwrap().make_timeouts(stakes, timeout);
@@ -1790,13 +1791,13 @@ impl ClusterInfo {
 
                     //TODO: possibly tune this parameter
                     //we saw a deadlock passing an self.read().unwrap().timeout into sleep
-                    if start - last_push > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
+                    if start - last_push > GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
                         self.push_self(&stakes, gossip_validators.as_ref());
                         last_push = timestamp();
                     }
                     let elapsed = timestamp() - start;
-                    if GOSSIP_SLEEP_MILLIS > elapsed {
-                        let time_left = GOSSIP_SLEEP_MILLIS - elapsed;
+                    if CFG.GOSSIP_SLEEP_MILLIS > elapsed {
+                        let time_left = CFG.GOSSIP_SLEEP_MILLIS - elapsed;
                         sleep(Duration::from_millis(time_left));
                     }
                     generate_pull_requests = !generate_pull_requests;
@@ -2377,7 +2378,7 @@ impl ClusterInfo {
             }
             None => {
                 inc_new_counter_info!("cluster_info-purge-no_working_bank", 1);
-                epoch_time_ms = CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
+                epoch_time_ms = GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
                 HashMap::new()
             }
         };
@@ -3399,7 +3400,7 @@ mod tests {
                 timestamp(),
                 None,
                 &HashMap::new(),
-                MAX_BLOOM_SIZE,
+                *MAX_BLOOM_SIZE,
             )
             .ok()
             .unwrap();
@@ -3675,7 +3676,7 @@ mod tests {
         // that it is still dropped
         let payload: Vec<CrdsValue> = vec![];
         let vec_size = serialized_size(&payload).unwrap();
-        let desired_size = MAX_PROTOCOL_PAYLOAD_SIZE - vec_size;
+        let desired_size = *MAX_PROTOCOL_PAYLOAD_SIZE - vec_size;
         let mut value = CrdsValue::new_unsigned(CrdsData::SnapshotHashes(SnapshotHash {
             from: Pubkey::default(),
             hashes: vec![],
@@ -3698,7 +3699,7 @@ mod tests {
     fn test_split_messages(value: CrdsValue) {
         const NUM_VALUES: u64 = 30;
         let value_size = value.size();
-        let num_values_per_payload = (MAX_PROTOCOL_PAYLOAD_SIZE / value_size).max(1);
+        let num_values_per_payload = (*MAX_PROTOCOL_PAYLOAD_SIZE / value_size).max(1);
 
         // Expected len is the ceiling of the division
         let expected_len = (NUM_VALUES + num_values_per_payload - 1) / num_values_per_payload;
@@ -3714,7 +3715,7 @@ mod tests {
         check_pull_request_size(CrdsFilter::new_rand(1000, 10));
         check_pull_request_size(CrdsFilter::new_rand(1000, 1000));
         check_pull_request_size(CrdsFilter::new_rand(100_000, 1000));
-        check_pull_request_size(CrdsFilter::new_rand(100_000, MAX_BLOOM_SIZE));
+        check_pull_request_size(CrdsFilter::new_rand(100_000, *MAX_BLOOM_SIZE));
     }
 
     fn check_pull_request_size(filter: CrdsFilter) {
@@ -3849,7 +3850,7 @@ mod tests {
     #[test]
     fn test_max_bloom_size() {
         // check that the constant fits into the dynamic size
-        assert!(MAX_BLOOM_SIZE <= max_bloom_size());
+        assert!(*MAX_BLOOM_SIZE <= max_bloom_size());
     }
 
     #[test]
@@ -3885,7 +3886,7 @@ mod tests {
         );
 
         // finally assert the header size estimation is correct
-        assert_eq!(MAX_PROTOCOL_HEADER_SIZE, max_protocol_size);
+        assert_eq!(CFG.MAX_PROTOCOL_HEADER_SIZE, max_protocol_size);
     }
 
     #[test]
@@ -3958,7 +3959,7 @@ mod tests {
             wallclock: 0,
         };
         let vote = CrdsValue::new_signed(CrdsData::Vote(1, vote), &Keypair::new());
-        assert!(bincode::serialized_size(&vote).unwrap() <= MAX_PROTOCOL_PAYLOAD_SIZE);
+        assert!(bincode::serialized_size(&vote).unwrap() <= *MAX_PROTOCOL_PAYLOAD_SIZE);
     }
 
     #[test]

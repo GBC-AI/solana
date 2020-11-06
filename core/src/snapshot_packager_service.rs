@@ -1,4 +1,4 @@
-use crate::cluster_info::{ClusterInfo, MAX_SNAPSHOT_HASHES};
+use crate::cluster_info::{ClusterInfo, CFG as CLUSTER_CFG};
 use solana_runtime::{snapshot_package::AccountsPackageReceiver, snapshot_utils};
 use solana_sdk::{clock::Slot, hash::Hash};
 use std::{
@@ -52,7 +52,7 @@ impl SnapshotPackagerService {
                                 warn!("Failed to create snapshot archive: {}", err);
                             } else {
                                 hashes.push((snapshot_package.root, snapshot_package.hash));
-                                while hashes.len() > MAX_SNAPSHOT_HASHES {
+                                while hashes.len() > CLUSTER_CFG.MAX_SNAPSHOT_HASHES {
                                     hashes.remove(0);
                                 }
                                 cluster_info.push_snapshot_hashes(hashes.clone());

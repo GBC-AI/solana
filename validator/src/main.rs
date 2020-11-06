@@ -12,9 +12,7 @@ use solana_clap_utils::{
     keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
 };
 use solana_client::rpc_client::RpcClient;
-use solana_core::ledger_cleanup_service::{
-    DEFAULT_MAX_LEDGER_SHREDS, DEFAULT_MIN_MAX_LEDGER_SHREDS,
-};
+use solana_core::ledger_cleanup_service::CFG as LEDGER_CLEANUP_CFG;
 use solana_core::{
     cluster_info::{ClusterInfo, Node, MINIMUM_VALIDATOR_PORT_RANGE_WIDTH, VALIDATOR_PORT_RANGE},
     contact_info::ContactInfo,
@@ -1580,12 +1578,12 @@ pub fn main() {
     if matches.is_present("limit_ledger_size") {
         let limit_ledger_size = match matches.value_of("limit_ledger_size") {
             Some(_) => value_t_or_exit!(matches, "limit_ledger_size", u64),
-            None => DEFAULT_MAX_LEDGER_SHREDS,
+            None => LEDGER_CLEANUP_CFG.DEFAULT_MAX_LEDGER_SHREDS,
         };
-        if limit_ledger_size < DEFAULT_MIN_MAX_LEDGER_SHREDS {
+        if limit_ledger_size < LEDGER_CLEANUP_CFG.DEFAULT_MIN_MAX_LEDGER_SHREDS {
             eprintln!(
                 "The provided --limit-ledger-size value was too small, the minimum value is {}",
-                DEFAULT_MIN_MAX_LEDGER_SHREDS
+                LEDGER_CLEANUP_CFG.DEFAULT_MIN_MAX_LEDGER_SHREDS
             );
             exit(1);
         }

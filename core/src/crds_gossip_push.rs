@@ -11,7 +11,7 @@
 use crate::{
     contact_info::ContactInfo,
     crds::{Crds, VersionedCrdsValue},
-    crds_gossip::{get_stake, get_weight, CRDS_GOSSIP_DEFAULT_BLOOM_ITEMS},
+    crds_gossip::{get_stake, get_weight, CFG as GOSSIP_CFG},
     crds_gossip_error::CrdsGossipError,
     crds_value::{CrdsValue, CrdsValueLabel},
     weighted_shuffle::weighted_shuffle,
@@ -344,7 +344,7 @@ impl CrdsGossipPush {
                     if new_items.get(&item.id).is_some() {
                         continue;
                     }
-                    let size = cmp::max(CRDS_GOSSIP_DEFAULT_BLOOM_ITEMS, network_size);
+                    let size = cmp::max(GOSSIP_CFG.CRDS_GOSSIP_DEFAULT_BLOOM_ITEMS, network_size);
                     let mut bloom = Bloom::random(size, 0.1, 1024 * 8 * 4);
                     bloom.add(&item.id);
                     new_items.insert(item.id, bloom);

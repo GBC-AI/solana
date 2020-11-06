@@ -5,7 +5,7 @@ use self::{
     standard_broadcast_run::StandardBroadcastRun,
 };
 use crate::contact_info::ContactInfo;
-use crate::crds_gossip_pull::CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
+use crate::crds_gossip_pull::CFG as GOSSIP_PULL_CFG;
 use crate::weighted_shuffle::weighted_best;
 use crate::{
     cluster_info::{ClusterInfo, ClusterInfoError},
@@ -40,7 +40,9 @@ pub(crate) mod broadcast_utils;
 mod fail_entry_verification_broadcast_run;
 mod standard_broadcast_run;
 
-pub(crate) const NUM_INSERT_THREADS: usize = 2;
+toml_config::package_config! {
+    NUM_INSERT_THREADS: usize,
+}
 pub(crate) type RetransmitSlotsSender = CrossbeamSender<HashMap<Slot, Arc<Bank>>>;
 pub(crate) type RetransmitSlotsReceiver = CrossbeamReceiver<HashMap<Slot, Arc<Bank>>>;
 pub(crate) type RecordReceiver = Receiver<(Arc<Vec<Shred>>, Option<BroadcastShredBatchInfo>)>;
@@ -252,7 +254,7 @@ impl BroadcastStage {
             thread_hdls.push(t);
         }
         let blockstore_receiver = Arc::new(Mutex::new(blockstore_receiver));
-        for _ in 0..NUM_INSERT_THREADS {
+        for _ in 0..CFG.NUM_INSERT_THREADS {
             let blockstore_receiver = blockstore_receiver.clone();
             let mut bs_record = broadcast_stage_run.clone();
             let btree = blockstore.clone();
@@ -428,7 +430,7 @@ fn num_live_peers(peers: &[ContactInfo]) -> i64 {
     let mut num_live_peers = 1i64;
     peers.iter().for_each(|p| {
         // A peer is considered live if they generated their contact info recently
-        if distance(timestamp(), p.wallclock) <= CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS {
+        if distance(timestamp(), p.wallclock) <= GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS {
             num_live_peers += 1;
         }
     });
@@ -522,7 +524,7 @@ pub mod test {
         assert_eq!(num_live_peers(&[ci.clone()]), 1);
         ci.wallclock = timestamp() - 1;
         assert_eq!(num_live_peers(&[ci.clone()]), 2);
-        ci.wallclock = timestamp() - CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS - 1;
+        ci.wallclock = timestamp() - GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS - 1;
         assert_eq!(num_live_peers(&[ci]), 1);
     }
 

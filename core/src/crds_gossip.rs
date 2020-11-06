@@ -14,8 +14,9 @@ use rayon::ThreadPool;
 use solana_sdk::{hash::Hash, pubkey::Pubkey};
 use std::collections::{HashMap, HashSet};
 
-///The min size for bloom filters
-pub const CRDS_GOSSIP_DEFAULT_BLOOM_ITEMS: usize = 500;
+toml_config::package_config! {
+    CRDS_GOSSIP_DEFAULT_BLOOM_ITEMS: usize,
+}
 
 #[derive(Clone)]
 pub struct CrdsGossip {

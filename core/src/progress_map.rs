@@ -2,7 +2,7 @@ use crate::{
     cluster_info_vote_listener::SlotVoteTracker,
     cluster_slots::SlotPubkeys,
     pubkey_references::PubkeyReferences,
-    replay_stage::SUPERMINORITY_THRESHOLD,
+    replay_stage::CFG as REPLAY_CFG,
     {consensus::Stake, consensus::VotedStakes},
 };
 use solana_ledger::blockstore_processor::{ConfirmationProgress, ConfirmationTiming};
@@ -133,7 +133,7 @@ impl ForkProgress {
                             true
                         } else {
                             info.stake as f64 / info.total_epoch_stake as f64
-                                > SUPERMINORITY_THRESHOLD
+                                > REPLAY_CFG.SUPERMINORITY_THRESHOLD
                         }
                     },
                     info.total_epoch_stake,

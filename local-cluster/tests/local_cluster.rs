@@ -9,7 +9,7 @@ use solana_client::{
 use solana_core::{
     broadcast_stage::BroadcastStageType,
     cluster_info::VALIDATOR_PORT_RANGE,
-    consensus::{Tower, SWITCH_FORK_THRESHOLD, VOTE_THRESHOLD_DEPTH},
+    consensus::{Tower, CFG as CONSENSUS_CFG},
     gossip_service::discover_cluster,
     optimistic_confirmation_verifier::OptimisticConfirmationVerifier,
     validator::ValidatorConfig,
@@ -506,7 +506,7 @@ fn run_kill_partition_switch_threshold<F>(
 {
     // Needs to be at least 1/3 or there will be no overlap
     // with the confirmation supermajority 2/3
-    assert!(SWITCH_FORK_THRESHOLD >= 1f64 / 3f64);
+    assert!(CONSENSUS_CFG.SWITCH_FORK_THRESHOLD >= 1f64 / 3f64);
     info!(
         "stakes: {} {} {}",
         failures_stake, alive_stake_1, alive_stake_2
@@ -560,7 +560,7 @@ fn run_kill_partition_switch_threshold<F>(
 #[test]
 #[serial]
 fn test_kill_partition_switch_threshold_no_progress() {
-    let max_switch_threshold_failure_pct = 1.0 - 2.0 * SWITCH_FORK_THRESHOLD;
+    let max_switch_threshold_failure_pct = 1.0 - 2.0 * CONSENSUS_CFG.SWITCH_FORK_THRESHOLD;
     let total_stake = 10_000;
     let max_failures_stake = (max_switch_threshold_failure_pct * total_stake as f64) as u64;
 
@@ -588,7 +588,7 @@ fn test_kill_partition_switch_threshold_no_progress() {
 #[test]
 #[serial]
 fn test_kill_partition_switch_threshold_progress() {
-    let max_switch_threshold_failure_pct = 1.0 - 2.0 * SWITCH_FORK_THRESHOLD;
+    let max_switch_threshold_failure_pct = 1.0 - 2.0 * CONSENSUS_CFG.SWITCH_FORK_THRESHOLD;
     let total_stake = 10_000;
 
     // Kill `< max_failures_stake` of the validators
@@ -611,8 +611,8 @@ fn test_kill_partition_switch_threshold_progress() {
     // 1) Not be able to generate a switching proof
     // 2) Other more staked fork stops voting, so doesn't catch up in bank weight.
     assert!(
-        bigger as f64 / total_stake as f64 > SWITCH_FORK_THRESHOLD
-            && smaller as f64 / total_stake as f64 <= SWITCH_FORK_THRESHOLD
+        bigger as f64 / total_stake as f64 > CONSENSUS_CFG.SWITCH_FORK_THRESHOLD
+            && smaller as f64 / total_stake as f64 <= CONSENSUS_CFG.SWITCH_FORK_THRESHOLD
     );
 
     let on_partition_resolved = |cluster: &mut LocalCluster| {
@@ -1360,7 +1360,7 @@ fn test_no_voting() {
         let last_slot = client
             .get_slot_with_commitment(CommitmentConfig::recent())
             .expect("Couldn't get slot");
-        if last_slot > 4 * VOTE_THRESHOLD_DEPTH as u64 {
+        if last_slot > 4 * CONSENSUS_CFG.VOTE_THRESHOLD_DEPTH as u64 {
             break;
         }
         sleep(Duration::from_secs(1));
@@ -1370,7 +1370,7 @@ fn test_no_voting() {
     let leader_pubkey = cluster.entry_point_info.id;
     let ledger_path = cluster.validators[&leader_pubkey].info.ledger_path.clone();
     let ledger = Blockstore::open(&ledger_path).unwrap();
-    for i in 0..2 * VOTE_THRESHOLD_DEPTH {
+    for i in 0..2 * CONSENSUS_CFG.VOTE_THRESHOLD_DEPTH {
         let meta = ledger.meta(i as u64).unwrap().unwrap();
         let parent = meta.parent_slot;
         let expected_parent = i.saturating_sub(1);

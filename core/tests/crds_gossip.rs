@@ -7,7 +7,7 @@ use solana_core::cluster_info;
 use solana_core::contact_info::ContactInfo;
 use solana_core::crds_gossip::*;
 use solana_core::crds_gossip_error::CrdsGossipError;
-use solana_core::crds_gossip_pull::{ProcessPullStats, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS};
+use solana_core::crds_gossip_pull::{ProcessPullStats, CFG as GOSSIP_PULL_CFG};
 use solana_core::crds_gossip_push::CFG as GOSSIP_PUSH_CFG;
 use solana_core::crds_value::CrdsValueLabel;
 use solana_core::crds_value::{CrdsData, CrdsValue};
@@ -414,7 +414,10 @@ fn network_run_pull(
     let num = network.len();
     let network_values: Vec<Node> = network.values().cloned().collect();
     let mut timeouts = HashMap::new();
-    timeouts.insert(Pubkey::default(), CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS);
+    timeouts.insert(
+        Pubkey::default(),
+        GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
+    );
 
     for t in start..end {
         let now = t as u64 * 100;
@@ -429,7 +432,7 @@ fn network_run_pull(
                             now,
                             None,
                             &HashMap::new(),
-                            cluster_info::MAX_BLOOM_SIZE,
+                            *cluster_info::MAX_BLOOM_SIZE,
                         )
                         .ok()
                 })

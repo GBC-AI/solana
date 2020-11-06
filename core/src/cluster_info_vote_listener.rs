@@ -1,5 +1,5 @@
 use crate::{
-    cluster_info::{ClusterInfo, GOSSIP_SLEEP_MILLIS},
+    cluster_info::{ClusterInfo, CFG},
     crds_value::CrdsValueLabel,
     optimistic_confirmation_verifier::OptimisticConfirmationVerifier,
     optimistically_confirmed_bank_tracker::{BankNotification, BankNotificationSender},
@@ -333,7 +333,7 @@ impl ClusterInfoVoteListener {
                 verified_vote_label_packets_sender.send(packets)?;
             }
 
-            sleep(Duration::from_millis(GOSSIP_SLEEP_MILLIS));
+            sleep(Duration::from_millis(CFG.GOSSIP_SLEEP_MILLIS));
         }
     }
 
@@ -397,7 +397,7 @@ impl ClusterInfoVoteListener {
                 }
             }
 
-            if time_since_lock.elapsed().as_millis() > GOSSIP_SLEEP_MILLIS as u128 {
+            if time_since_lock.elapsed().as_millis() > CFG.GOSSIP_SLEEP_MILLIS as u128 {
                 let bank = poh_recorder.lock().unwrap().bank();
                 if let Some(bank) = bank {
                     let last_version = bank.last_vote_sync.load(Ordering::Relaxed);

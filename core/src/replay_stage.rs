@@ -12,7 +12,7 @@ use crate::{
     fork_choice::{ForkChoice, SelectVoteAndResetForkResult},
     heaviest_subtree_fork_choice::HeaviestSubtreeForkChoice,
     optimistically_confirmed_bank_tracker::{BankNotification, BankNotificationSender},
-    poh_recorder::{PohRecorder, GRACE_TICKS_FACTOR, MAX_GRACE_SLOTS},
+    poh_recorder::{PohRecorder, CFG as POH_CFG},
     progress_map::{ForkProgress, ProgressMap, PropagatedStats},
     pubkey_references::PubkeyReferences,
     repair_service::DuplicateSlotsResetReceiver,
@@ -59,9 +59,11 @@ use std::{
     time::Duration,
 };
 
-pub const MAX_ENTRY_RECV_PER_ITER: usize = 512;
-pub const SUPERMINORITY_THRESHOLD: f64 = 1f64 / 3f64;
-pub const MAX_UNCONFIRMED_SLOTS: usize = 5;
+toml_config::package_config! {
+    MAX_ENTRY_RECV_PER_ITER: usize,
+    SUPERMINORITY_THRESHOLD: f64,
+    MAX_UNCONFIRMED_SLOTS: usize,
+}
 
 #[derive(PartialEq, Debug)]
 pub(crate) enum HeaviestForkFailures {
@@ -1228,7 +1230,7 @@ impl ReplayStage {
             bank.slot(),
             &bank,
             Some(blockstore),
-            GRACE_TICKS_FACTOR * MAX_GRACE_SLOTS,
+            POH_CFG.GRACE_TICKS_FACTOR * POH_CFG.MAX_GRACE_SLOTS,
         );
         poh_recorder
             .lock()
@@ -1745,7 +1747,7 @@ impl ReplayStage {
         if leader_propagated_stats.total_epoch_stake == 0
             || leader_propagated_stats.propagated_validators_stake as f64
                 / leader_propagated_stats.total_epoch_stake as f64
-                > SUPERMINORITY_THRESHOLD
+                > CFG.SUPERMINORITY_THRESHOLD
         {
             leader_propagated_stats.is_propagated = true;
             did_newly_reach_threshold = true

@@ -304,13 +304,15 @@ impl StandardBroadcastRun {
         shreds: Arc<Vec<Shred>>,
         broadcast_shred_batch_info: Option<BroadcastShredBatchInfo>,
     ) -> Result<()> {
-        const BROADCAST_PEER_UPDATE_INTERVAL_MS: u64 = 1000;
+        toml_config::package_config! {
+            BROADCAST_PEER_UPDATE_INTERVAL_MS: u64,
+        }
         trace!("Broadcasting {:?} shreds", shreds.len());
         // Get the list of peers to broadcast to
         let mut get_peers_time = Measure::start("broadcast::get_peers");
         let now = timestamp();
         let last = self.last_peer_update.load(Ordering::Relaxed);
-        if now - last > BROADCAST_PEER_UPDATE_INTERVAL_MS
+        if now - last > CFG.BROADCAST_PEER_UPDATE_INTERVAL_MS
             && self
                 .last_peer_update
                 .compare_and_swap(now, last, Ordering::Relaxed)

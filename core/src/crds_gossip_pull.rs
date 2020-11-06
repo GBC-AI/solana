@@ -11,7 +11,7 @@
 
 use crate::contact_info::ContactInfo;
 use crate::crds::{Crds, VersionedCrdsValue};
-use crate::crds_gossip::{get_stake, get_weight, CRDS_GOSSIP_DEFAULT_BLOOM_ITEMS};
+use crate::crds_gossip::{get_stake, get_weight, CFG as GOSSIP_CFG};
 use crate::crds_gossip_error::CrdsGossipError;
 use crate::crds_value::{CrdsValue, CrdsValueLabel};
 use rand::distributions::{Distribution, WeightedIndex};
@@ -26,11 +26,12 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::ops::Index;
 
-pub const CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS: u64 = 15000;
-// The maximum age of a value received over pull responses
-pub const CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS: u64 = 60000;
-// Retention period of hashes of received outdated values.
-const FAILED_INSERTS_RETENTION_MS: u64 = 20_000;
+toml_config::package_config! {
+    CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS: u64,
+    CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS: u64,
+    FAILED_INSERTS_RETENTION_MS: u64,
+}
+
 pub const FALSE_RATE: f64 = 0.1f64;
 pub const KEYS: f64 = 8f64;
 
@@ -190,8 +191,8 @@ impl Default for CrdsGossipPull {
             purged_values: VecDeque::new(),
             pull_request_time: HashMap::new(),
             failed_inserts: VecDeque::new(),
-            crds_timeout: CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
-            msg_timeout: CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
+            crds_timeout: CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
+            msg_timeout: CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
             num_pulls: 0,
         }
     }
@@ -414,8 +415,8 @@ impl CrdsGossipPull {
     }
 
     pub fn purge_failed_inserts(&mut self, now: u64) {
-        if FAILED_INSERTS_RETENTION_MS < now {
-            let cutoff = now - FAILED_INSERTS_RETENTION_MS;
+        if CFG.FAILED_INSERTS_RETENTION_MS < now {
+            let cutoff = now - CFG.FAILED_INSERTS_RETENTION_MS;
             let outdated = self
                 .failed_inserts
                 .iter()
@@ -435,7 +436,7 @@ impl CrdsGossipPull {
     ) -> Vec<CrdsFilter> {
         const PAR_MIN_LENGTH: usize = 512;
         let num = cmp::max(
-            CRDS_GOSSIP_DEFAULT_BLOOM_ITEMS,
+            GOSSIP_CFG.CRDS_GOSSIP_DEFAULT_BLOOM_ITEMS,
             crds.table.len() + self.purged_values.len() + self.failed_inserts.len(),
         );
         let filters = CrdsFilterSet::new(num, bloom_size);
@@ -468,7 +469,7 @@ impl CrdsGossipPull {
         filters: &[(CrdsValue, CrdsFilter)],
         now: u64,
     ) -> Vec<Vec<CrdsValue>> {
-        let msg_timeout = CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
+        let msg_timeout = CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
         let jitter = rand::thread_rng().gen_range(0, msg_timeout / 4);
         //skip filters from callers that are too old
         let future = now.saturating_add(msg_timeout);
@@ -856,7 +857,7 @@ mod test {
             }
         }
         assert_eq!(num_inserts, 20_000);
-        let filters = crds_gossip_pull.build_crds_filters(&thread_pool, &crds, MAX_BLOOM_SIZE);
+        let filters = crds_gossip_pull.build_crds_filters(&thread_pool, &crds, *MAX_BLOOM_SIZE);
         assert_eq!(filters.len(), 32);
         let hash_values: Vec<_> = crds
             .table
@@ -1027,15 +1028,15 @@ mod test {
 
         let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
             &solana_sdk::pubkey::new_rand(),
-            CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
+            CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
         )));
         dest_crds
-            .insert(new, CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS)
+            .insert(new, CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS)
             .unwrap();
 
         //should skip new value since caller is to old
         let rsp =
-            dest.generate_pull_responses(&dest_crds, &filters, CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS);
+            dest.generate_pull_responses(&dest_crds, &filters, CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS);
         assert_eq!(rsp[0].len(), 0);
 
         assert_eq!(filters.len(), 1);
@@ -1043,11 +1044,11 @@ mod test {
         //should return new value since caller is new
         filters[1].0 = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
             &solana_sdk::pubkey::new_rand(),
-            CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS + 1,
+            CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS + 1,
         )));
 
         let rsp =
-            dest.generate_pull_responses(&dest_crds, &filters, CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS);
+            dest.generate_pull_responses(&dest_crds, &filters, CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS);
         assert_eq!(rsp.len(), 2);
         assert_eq!(rsp[0].len(), 0);
         assert_eq!(rsp[1].len(), 1); // Orders are also preserved.

@@ -1,7 +1,7 @@
 //! The `retransmit_stage` retransmits shreds between validators
 
 use crate::{
-    cluster_info::{compute_retransmit_peers, ClusterInfo, DATA_PLANE_FANOUT},
+    cluster_info::{compute_retransmit_peers, ClusterInfo, CFG as CLUSTER_CFG},
     cluster_info_vote_listener::VerifiedVoteReceiver,
     cluster_slots::ClusterSlots,
     cluster_slots_service::ClusterSlotsService,
@@ -295,7 +295,7 @@ fn retransmit(
                 .collect();
 
             let (neighbors, children) =
-                compute_retransmit_peers(DATA_PLANE_FANOUT, my_index, indexes);
+                compute_retransmit_peers(CLUSTER_CFG.DATA_PLANE_FANOUT, my_index, indexes);
             let neighbors: Vec<_> = neighbors
                 .into_iter()
                 .map(|index| &r_epoch_stakes_cache.peers[index])

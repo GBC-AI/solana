@@ -6,7 +6,7 @@ use log::*;
 use rand::{thread_rng, Rng};
 use solana_client::thin_client::create_client;
 use solana_core::{
-    cluster_info::VALIDATOR_PORT_RANGE, consensus::VOTE_THRESHOLD_DEPTH, contact_info::ContactInfo,
+    cluster_info::VALIDATOR_PORT_RANGE, consensus::CFG as CONSENSUS_CFG, contact_info::ContactInfo,
     gossip_service::discover_cluster,
 };
 use solana_ledger::{
@@ -61,7 +61,7 @@ pub fn spend_and_verify_all_nodes<S: ::std::hash::BuildHasher>(
             .unwrap();
         let mut transaction =
             system_transaction::transfer(&funding_keypair, &random_keypair.pubkey(), 1, blockhash);
-        let confs = VOTE_THRESHOLD_DEPTH + 1;
+        let confs = CONSENSUS_CFG.VOTE_THRESHOLD_DEPTH + 1;
         let sig = client
             .retry_transfer_until_confirmed(&funding_keypair, &mut transaction, 10, confs)
             .unwrap();
@@ -246,7 +246,7 @@ pub fn kill_entry_and_spend_and_verify_rest(
                 blockhash,
             );
 
-            let confs = VOTE_THRESHOLD_DEPTH + 1;
+            let confs = CONSENSUS_CFG.VOTE_THRESHOLD_DEPTH + 1;
             let sig = {
                 let sig = client.retry_transfer_until_confirmed(
                     &funding_keypair,

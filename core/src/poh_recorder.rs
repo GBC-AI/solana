@@ -28,8 +28,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use thiserror::Error;
 
-pub const GRACE_TICKS_FACTOR: u64 = 2;
-pub const MAX_GRACE_SLOTS: u64 = 2;
+toml_config::package_config! {
+    GRACE_TICKS_FACTOR: u64,
+    MAX_GRACE_SLOTS: u64,
+}
 
 #[derive(Error, Debug, Clone)]
 pub enum PohRecorderError {
@@ -85,7 +87,7 @@ impl PohRecorder {
                 bank.slot(),
                 &bank,
                 Some(&self.blockstore),
-                GRACE_TICKS_FACTOR * MAX_GRACE_SLOTS,
+                CFG.GRACE_TICKS_FACTOR * CFG.MAX_GRACE_SLOTS,
             );
             assert_eq!(self.ticks_per_slot, bank.ticks_per_slot());
             let (leader_first_tick_height, leader_last_tick_height, grace_ticks) =
@@ -215,8 +217,8 @@ impl PohRecorder {
                 let last_tick_height = (last_slot + 1) * ticks_per_slot;
                 let num_slots = last_slot - first_slot + 1;
                 let grace_ticks = cmp::min(
-                    ticks_per_slot * MAX_GRACE_SLOTS,
-                    ticks_per_slot * num_slots / GRACE_TICKS_FACTOR,
+                    ticks_per_slot * CFG.MAX_GRACE_SLOTS,
+                    ticks_per_slot * num_slots / CFG.GRACE_TICKS_FACTOR,
                 );
                 (
                     Some(leader_first_tick_height + grace_ticks),
@@ -228,8 +230,8 @@ impl PohRecorder {
                 None,
                 0,
                 cmp::min(
-                    ticks_per_slot * MAX_GRACE_SLOTS,
-                    ticks_per_slot * NUM_CONSECUTIVE_LEADER_SLOTS / GRACE_TICKS_FACTOR,
+                    ticks_per_slot * CFG.MAX_GRACE_SLOTS,
+                    ticks_per_slot * NUM_CONSECUTIVE_LEADER_SLOTS / CFG.GRACE_TICKS_FACTOR,
                 ),
             ))
     }
@@ -1147,7 +1149,7 @@ mod tests {
 
             assert_eq!(poh_recorder.reached_leader_tick(0), true);
 
-            let grace_ticks = bank.ticks_per_slot() * MAX_GRACE_SLOTS;
+            let grace_ticks = bank.ticks_per_slot() * CFG.MAX_GRACE_SLOTS;
             let new_tick_height = NUM_CONSECUTIVE_LEADER_SLOTS * bank.ticks_per_slot();
             for _ in 0..new_tick_height {
                 poh_recorder.tick();
@@ -1259,7 +1261,7 @@ mod tests {
             assert_eq!(poh_recorder.reached_leader_slot().0, false);
 
             // Send the grace ticks
-            for _ in 0..bank.ticks_per_slot() / GRACE_TICKS_FACTOR {
+            for _ in 0..bank.ticks_per_slot() / CFG.GRACE_TICKS_FACTOR {
                 poh_recorder.tick();
             }
 
@@ -1267,7 +1269,7 @@ mod tests {
             let (reached_leader_slot, grace_ticks, leader_slot, ..) =
                 poh_recorder.reached_leader_slot();
             assert_eq!(reached_leader_slot, true);
-            assert_eq!(grace_ticks, bank.ticks_per_slot() / GRACE_TICKS_FACTOR);
+            assert_eq!(grace_ticks, bank.ticks_per_slot() / CFG.GRACE_TICKS_FACTOR);
             assert_eq!(leader_slot, 3);
 
             // Let's test that correct grace ticks are reported

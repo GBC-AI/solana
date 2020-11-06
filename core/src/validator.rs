@@ -12,7 +12,7 @@ use crate::{
     optimistically_confirmed_bank_tracker::{
         OptimisticallyConfirmedBank, OptimisticallyConfirmedBankTracker,
     },
-    poh_recorder::{PohRecorder, GRACE_TICKS_FACTOR, MAX_GRACE_SLOTS},
+    poh_recorder::{PohRecorder, CFG as POH_CFG},
     poh_service::PohService,
     rewards_recorder_service::{RewardsRecorderSender, RewardsRecorderService},
     rpc::JsonRpcConfig,
@@ -378,7 +378,7 @@ impl Validator {
                 bank.slot(),
                 &bank,
                 Some(&blockstore),
-                GRACE_TICKS_FACTOR * MAX_GRACE_SLOTS,
+                POH_CFG.GRACE_TICKS_FACTOR * POH_CFG.MAX_GRACE_SLOTS,
             ),
             bank.ticks_per_slot(),
             &id,

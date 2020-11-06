@@ -1,4 +1,4 @@
-use crate::cluster_info::MAX_CRDS_OBJECT_SIZE;
+use crate::cluster_info::CFG as CLUSTER_CFG;
 use crate::crds_value::MAX_SLOT;
 use crate::crds_value::MAX_WALLCLOCK;
 use bincode::serialized_size;
@@ -292,7 +292,7 @@ impl EpochSlots {
     pub fn max_compressed_slot_size(&self) -> isize {
         let len_header = serialized_size(self).unwrap();
         let len_slot = serialized_size(&CompressedSlots::default()).unwrap();
-        MAX_CRDS_OBJECT_SIZE as isize - (len_header + len_slot) as isize
+        CLUSTER_CFG.MAX_CRDS_OBJECT_SIZE as isize - (len_header + len_slot) as isize
     }
 
     pub fn first_slot(&self) -> Option<Slot> {
