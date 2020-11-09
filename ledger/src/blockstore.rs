@@ -27,7 +27,7 @@ use solana_rayon_threadlimit::get_thread_count;
 use solana_runtime::hardened_unpack::{unpack_genesis_archive, MAX_GENESIS_ARCHIVE_UNPACKED_SIZE};
 use solana_sdk::{
     account::Account,
-    clock::{Slot, UnixTimestamp, DEFAULT_TICKS_PER_SECOND, MS_PER_TICK},
+    clock::{Slot, UnixTimestamp, CFG as CLOCK_CFG, MS_PER_TICK},
     genesis_config::GenesisConfig,
     hash::Hash,
     program_utils::limited_deserialize,
@@ -82,7 +82,7 @@ toml_config::package_config! {
     MAX_DATA_SHREDS_PER_SLOT: usize,
 }
 toml_config::derived_values! {
-    MAX_TURBINE_DELAY_IN_TICKS: u64 = CFG.MAX_TURBINE_PROPAGATION_IN_MS / MS_PER_TICK;
+    MAX_TURBINE_DELAY_IN_TICKS: u64 = CFG.MAX_TURBINE_PROPAGATION_IN_MS / *MS_PER_TICK;
 }
 
 pub type CompletedSlotsReceiver = Receiver<Vec<u64>>;
@@ -1488,7 +1488,7 @@ impl Blockstore {
 
         let mut missing_indexes = vec![];
         let ticks_since_first_insert =
-            DEFAULT_TICKS_PER_SECOND * (timestamp() - first_timestamp) / 1000;
+            CLOCK_CFG.DEFAULT_TICKS_PER_SECOND * (timestamp() - first_timestamp) / 1000;
 
         // Seek to the first shred with index >= start_index
         db_iterator.seek(&C::key((slot, start_index)));
@@ -2767,7 +2767,8 @@ fn update_slot_meta(
     slot_meta.received = cmp::max((u64::from(index) + 1) as u64, slot_meta.received);
     if maybe_first_insert && slot_meta.received > 0 {
         // predict the timestamp of what would have been the first shred in this slot
-        let slot_time_elapsed = u64::from(reference_tick) * 1000 / DEFAULT_TICKS_PER_SECOND;
+        let slot_time_elapsed =
+            u64::from(reference_tick) * 1000 / CLOCK_CFG.DEFAULT_TICKS_PER_SECOND;
         slot_meta.first_shred_timestamp = timestamp() - slot_time_elapsed;
     }
     slot_meta.consumed = new_consumed;

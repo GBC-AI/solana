@@ -1114,7 +1114,8 @@ pub fn process_ping(
                     // Sleep for half a slot
                     if signal_receiver
                         .recv_timeout(Duration::from_millis(
-                            500 * clock::DEFAULT_TICKS_PER_SLOT / clock::DEFAULT_TICKS_PER_SECOND,
+                            500 * clock::CFG.DEFAULT_TICKS_PER_SLOT
+                                / clock::CFG.DEFAULT_TICKS_PER_SECOND,
                         ))
                         .is_ok()
                     {

@@ -1,7 +1,7 @@
 //! The `poh_service` module implements a service that records the passing of
 //! "ticks", a measure of time in the PoH stream
 use crate::poh_recorder::PohRecorder;
-use solana_sdk::clock::DEFAULT_TICKS_PER_SLOT;
+use solana_sdk::clock::CFG as CLOCK_CFG;
 use solana_sdk::poh_config::PohConfig;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -96,7 +96,7 @@ impl PohService {
                 // Lock PohRecorder only for the final hash...
                 poh_recorder.lock().unwrap().tick();
                 num_ticks += 1;
-                if num_ticks >= DEFAULT_TICKS_PER_SLOT * 2 {
+                if num_ticks >= CLOCK_CFG.DEFAULT_TICKS_PER_SLOT * 2 {
                     datapoint_info!(
                         "poh-service",
                         ("ticks", num_ticks as i64, i64),

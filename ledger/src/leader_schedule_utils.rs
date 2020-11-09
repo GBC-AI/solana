@@ -2,7 +2,7 @@ use crate::leader_schedule::LeaderSchedule;
 use crate::staking_utils;
 use solana_runtime::bank::Bank;
 use solana_sdk::{
-    clock::{Epoch, Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
+    clock::{Epoch, Slot, CFG as CLOCK_CFG},
     pubkey::Pubkey,
 };
 
@@ -17,7 +17,7 @@ pub fn leader_schedule(epoch: Epoch, bank: &Bank) -> Option<LeaderSchedule> {
             &stakes,
             seed,
             bank.get_slots_in_epoch(epoch),
-            NUM_CONSECUTIVE_LEADER_SLOTS,
+            CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS,
         )
     })
 }
@@ -70,7 +70,7 @@ mod tests {
             &pubkeys_and_stakes,
             seed,
             genesis_config.epoch_schedule.slots_per_epoch,
-            NUM_CONSECUTIVE_LEADER_SLOTS,
+            CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS,
         );
 
         assert_eq!(leader_schedule[0], pubkey);

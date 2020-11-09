@@ -392,16 +392,18 @@ pub fn keypair_from_seed_phrase_and_passphrase(
     seed_phrase: &str,
     passphrase: &str,
 ) -> Result<Keypair, Box<dyn error::Error>> {
-    const PBKDF2_ROUNDS: usize = 2048;
-    const PBKDF2_BYTES: usize = 64;
+    toml_config::package_config! {
+        PBKDF2_ROUNDS: usize,
+        PBKDF2_BYTES: usize,
+    }
 
     let salt = format!("mnemonic{}", passphrase);
 
-    let mut seed = vec![0u8; PBKDF2_BYTES];
+    let mut seed = vec![0u8; CFG.PBKDF2_BYTES];
     pbkdf2::pbkdf2::<Hmac<sha2::Sha512>>(
         seed_phrase.as_bytes(),
         salt.as_bytes(),
-        PBKDF2_ROUNDS,
+        CFG.PBKDF2_ROUNDS,
         &mut seed,
     );
     keypair_from_seed(&seed[..])

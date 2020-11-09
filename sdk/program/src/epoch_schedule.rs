@@ -1,20 +1,16 @@
 //! configuration for epochs, slots
 
 /// 1 Epoch = 400 * 8192 ms ~= 55 minutes
-pub use crate::clock::{Epoch, Slot, DEFAULT_SLOTS_PER_EPOCH};
+pub use crate::clock::{Epoch, Slot, CFG as CLOCK_CFG, DEFAULT_SLOTS_PER_EPOCH};
 
-/// The number of slots before an epoch starts to calculate the leader schedule.
-///  Default is an entire epoch, i.e. leader schedule for epoch X is calculated at
-///  the beginning of epoch X - 1.
-pub const DEFAULT_LEADER_SCHEDULE_SLOT_OFFSET: u64 = DEFAULT_SLOTS_PER_EPOCH;
+toml_config::derived_values! {
+    DEFAULT_LEADER_SCHEDULE_SLOT_OFFSET: u64 = *DEFAULT_SLOTS_PER_EPOCH;
+}
 
-/// The maximum number of slots before an epoch starts to calculate the leader schedule.
-///  Default is an entire epoch, i.e. leader schedule for epoch X is calculated at
-///  the beginning of epoch X - 1.
-pub const MAX_LEADER_SCHEDULE_EPOCH_OFFSET: u64 = 3;
-
-/// based on MAX_LOCKOUT_HISTORY from vote_program
-pub const MINIMUM_SLOTS_PER_EPOCH: u64 = 32;
+toml_config::package_config! {
+    MAX_LEADER_SCHEDULE_EPOCH_OFFSET: u64,
+    MINIMUM_SLOTS_PER_EPOCH: u64,
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, AbiExample)]
@@ -40,8 +36,8 @@ pub struct EpochSchedule {
 impl Default for EpochSchedule {
     fn default() -> Self {
         Self::custom(
-            DEFAULT_SLOTS_PER_EPOCH,
-            DEFAULT_LEADER_SCHEDULE_SLOT_OFFSET,
+            *DEFAULT_SLOTS_PER_EPOCH,
+            *DEFAULT_LEADER_SCHEDULE_SLOT_OFFSET,
             true,
         )
     }
@@ -52,16 +48,16 @@ impl EpochSchedule {
         Self::custom(slots_per_epoch, slots_per_epoch, true)
     }
     pub fn custom(slots_per_epoch: u64, leader_schedule_slot_offset: u64, warmup: bool) -> Self {
-        assert!(slots_per_epoch >= MINIMUM_SLOTS_PER_EPOCH as u64);
+        assert!(slots_per_epoch >= CFG.MINIMUM_SLOTS_PER_EPOCH as u64);
         let (first_normal_epoch, first_normal_slot) = if warmup {
             let next_power_of_two = slots_per_epoch.next_power_of_two();
             let log2_slots_per_epoch = next_power_of_two
                 .trailing_zeros()
-                .saturating_sub(MINIMUM_SLOTS_PER_EPOCH.trailing_zeros());
+                .saturating_sub(CFG.MINIMUM_SLOTS_PER_EPOCH.trailing_zeros());
 
             (
                 u64::from(log2_slots_per_epoch),
-                next_power_of_two.saturating_sub(MINIMUM_SLOTS_PER_EPOCH),
+                next_power_of_two.saturating_sub(CFG.MINIMUM_SLOTS_PER_EPOCH),
             )
         } else {
             (0, 0)
@@ -78,7 +74,7 @@ impl EpochSchedule {
     /// get the length of the given epoch (in slots)
     pub fn get_slots_in_epoch(&self, epoch: Epoch) -> u64 {
         if epoch < self.first_normal_epoch {
-            2u64.pow(epoch as u32 + MINIMUM_SLOTS_PER_EPOCH.trailing_zeros() as u32)
+            2u64.pow(epoch as u32 + CFG.MINIMUM_SLOTS_PER_EPOCH.trailing_zeros() as u32)
         } else {
             self.slots_per_epoch
         }
@@ -105,17 +101,17 @@ impl EpochSchedule {
     /// get epoch and offset into the epoch for the given slot
     pub fn get_epoch_and_slot_index(&self, slot: Slot) -> (Epoch, u64) {
         if slot < self.first_normal_slot {
-            let epoch = (slot + MINIMUM_SLOTS_PER_EPOCH + 1)
+            let epoch = (slot + CFG.MINIMUM_SLOTS_PER_EPOCH + 1)
                 .next_power_of_two()
                 .trailing_zeros()
-                - MINIMUM_SLOTS_PER_EPOCH.trailing_zeros()
+                - CFG.MINIMUM_SLOTS_PER_EPOCH.trailing_zeros()
                 - 1;
 
-            let epoch_len = 2u64.pow(epoch + MINIMUM_SLOTS_PER_EPOCH.trailing_zeros());
+            let epoch_len = 2u64.pow(epoch + CFG.MINIMUM_SLOTS_PER_EPOCH.trailing_zeros());
 
             (
                 u64::from(epoch),
-                slot - (epoch_len - MINIMUM_SLOTS_PER_EPOCH),
+                slot - (epoch_len - CFG.MINIMUM_SLOTS_PER_EPOCH),
             )
         } else {
             (
@@ -127,7 +123,7 @@ impl EpochSchedule {
 
     pub fn get_first_slot_in_epoch(&self, epoch: Epoch) -> Slot {
         if epoch <= self.first_normal_epoch {
-            (2u64.pow(epoch as u32) - 1) * MINIMUM_SLOTS_PER_EPOCH
+            (2u64.pow(epoch as u32) - 1) * CFG.MINIMUM_SLOTS_PER_EPOCH
         } else {
             (epoch - self.first_normal_epoch) * self.slots_per_epoch + self.first_normal_slot
         }
@@ -148,18 +144,18 @@ mod tests {
         // (1 * 7 * 24 * 4500u64).next_power_of_two();
 
         // test values between MINIMUM_SLOT_LEN and MINIMUM_SLOT_LEN * 16, should cover a good mix
-        for slots_per_epoch in MINIMUM_SLOTS_PER_EPOCH..=MINIMUM_SLOTS_PER_EPOCH * 16 {
+        for slots_per_epoch in CFG.MINIMUM_SLOTS_PER_EPOCH..=CFG.MINIMUM_SLOTS_PER_EPOCH * 16 {
             let epoch_schedule = EpochSchedule::custom(slots_per_epoch, slots_per_epoch / 2, true);
 
             assert_eq!(epoch_schedule.get_first_slot_in_epoch(0), 0);
             assert_eq!(
                 epoch_schedule.get_last_slot_in_epoch(0),
-                MINIMUM_SLOTS_PER_EPOCH - 1
+                CFG.MINIMUM_SLOTS_PER_EPOCH - 1
             );
 
             let mut last_leader_schedule = 0;
             let mut last_epoch = 0;
-            let mut last_slots_in_epoch = MINIMUM_SLOTS_PER_EPOCH;
+            let mut last_slots_in_epoch = CFG.MINIMUM_SLOTS_PER_EPOCH;
             for slot in 0..(2 * slots_per_epoch) {
                 // verify that leader_schedule_epoch is continuous over the warmup
                 // and into the first normal epoch

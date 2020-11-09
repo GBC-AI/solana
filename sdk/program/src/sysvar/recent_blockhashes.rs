@@ -6,7 +6,9 @@ use crate::{
 };
 use std::{cmp::Ordering, collections::BinaryHeap, iter::FromIterator, ops::Deref};
 
-pub const MAX_ENTRIES: usize = 150;
+toml_config::package_config! {
+    RECENT_BLOCKHASHES_MAX_ENTRIES: usize,
+}
 
 declare_sysvar_id!(
     "SysvarRecentB1ockHashes11111111111111111111",
@@ -58,7 +60,7 @@ pub struct RecentBlockhashes(Vec<Entry>);
 
 impl Default for RecentBlockhashes {
     fn default() -> Self {
-        Self(Vec::with_capacity(MAX_ENTRIES))
+        Self(Vec::with_capacity(CFG.RECENT_BLOCKHASHES_MAX_ENTRIES))
     }
 }
 
@@ -123,7 +125,7 @@ impl Deref for RecentBlockhashes {
 }
 
 pub fn create_test_recent_blockhashes(start: usize) -> RecentBlockhashes {
-    let blocks: Vec<_> = (start..start + MAX_ENTRIES)
+    let blocks: Vec<_> = (start..start + CFG.RECENT_BLOCKHASHES_MAX_ENTRIES)
         .map(|i| {
             (
                 i as u64,
@@ -148,15 +150,18 @@ mod tests {
     #[allow(clippy::assertions_on_constants)]
     fn test_sysvar_can_hold_all_active_blockhashes() {
         // Ensure we can still hold all of the active entries in `BlockhashQueue`
-        assert!(MAX_PROCESSING_AGE <= MAX_ENTRIES);
+        assert!(*MAX_PROCESSING_AGE <= CFG.RECENT_BLOCKHASHES_MAX_ENTRIES);
     }
 
     #[test]
     fn test_size_of() {
         let entry = Entry::new(&Hash::default(), &FeeCalculator::default());
         assert_eq!(
-            bincode::serialized_size(&RecentBlockhashes(vec![entry; MAX_ENTRIES])).unwrap()
-                as usize,
+            bincode::serialized_size(&RecentBlockhashes(vec![
+                entry;
+                CFG.RECENT_BLOCKHASHES_MAX_ENTRIES
+            ]))
+            .unwrap() as usize,
             RecentBlockhashes::size_of()
         );
     }

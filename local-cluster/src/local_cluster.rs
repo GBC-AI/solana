@@ -18,7 +18,7 @@ use solana_runtime::genesis_utils::{
 };
 use solana_sdk::{
     client::SyncClient,
-    clock::{DEFAULT_DEV_SLOTS_PER_EPOCH, DEFAULT_TICKS_PER_SLOT},
+    clock::CFG as CLOCK_CFG,
     commitment_config::CommitmentConfig,
     epoch_schedule::EpochSchedule,
     genesis_config::{ClusterType, GenesisConfig},
@@ -77,9 +77,9 @@ impl Default for ClusterConfig {
             validator_keys: None,
             node_stakes: vec![],
             cluster_lamports: 0,
-            ticks_per_slot: DEFAULT_TICKS_PER_SLOT,
-            slots_per_epoch: DEFAULT_DEV_SLOTS_PER_EPOCH,
-            stakers_slot_offset: DEFAULT_DEV_SLOTS_PER_EPOCH,
+            ticks_per_slot: CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
+            slots_per_epoch: CLOCK_CFG.DEFAULT_DEV_SLOTS_PER_EPOCH,
+            stakers_slot_offset: CLOCK_CFG.DEFAULT_DEV_SLOTS_PER_EPOCH,
             native_instruction_processors: vec![],
             cluster_type: ClusterType::Development,
             poh_config: PohConfig::default(),
@@ -669,7 +669,7 @@ impl Drop for LocalCluster {
 #[cfg(test)]
 mod test {
     use super::*;
-    use solana_sdk::epoch_schedule::MINIMUM_SLOTS_PER_EPOCH;
+    use solana_sdk::epoch_schedule::CFG as EPOCH_CFG;
 
     #[test]
     fn test_local_cluster_start_and_exit() {
@@ -690,8 +690,8 @@ mod test {
             node_stakes: vec![3; NUM_NODES],
             cluster_lamports: 100,
             ticks_per_slot: 8,
-            slots_per_epoch: MINIMUM_SLOTS_PER_EPOCH as u64,
-            stakers_slot_offset: MINIMUM_SLOTS_PER_EPOCH as u64,
+            slots_per_epoch: EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64,
+            stakers_slot_offset: EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64,
             ..ClusterConfig::default()
         };
         let cluster = LocalCluster::new(&config);

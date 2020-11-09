@@ -1009,7 +1009,9 @@ impl JsonRpcRequestProcessor {
         let config = config.unwrap_or_default();
         let bank = self.bank(config.commitment);
         let epoch = config.epoch.unwrap_or_else(|| bank.epoch());
-        if bank.epoch().saturating_sub(epoch) > solana_sdk::stake_history::MAX_ENTRIES as u64 {
+        if bank.epoch().saturating_sub(epoch)
+            > solana_sdk::stake_history::CFG.STAKE_HISTORY_MAX_ENTRIES as u64
+        {
             return Err(Error::invalid_params(format!(
                 "Invalid param: epoch {:?} is too far in the past",
                 epoch
@@ -4094,7 +4096,7 @@ pub mod tests {
                 "feeCalculator": {
                     "lamportsPerSignature": 0,
                 },
-                "lastValidSlot": MAX_RECENT_BLOCKHASHES,
+                "lastValidSlot": *MAX_RECENT_BLOCKHASHES,
             }},
             "id": 1
         });

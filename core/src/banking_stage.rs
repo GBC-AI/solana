@@ -29,10 +29,7 @@ use solana_runtime::{
     vote_sender_types::ReplayVoteSender,
 };
 use solana_sdk::{
-    clock::{
-        Slot, DEFAULT_TICKS_PER_SLOT, MAX_PROCESSING_AGE, MAX_TRANSACTION_FORWARDING_DELAY,
-        MAX_TRANSACTION_FORWARDING_DELAY_GPU,
-    },
+    clock::{Slot, CFG as CLOCK_CFG, MAX_PROCESSING_AGE},
     poh_config::PohConfig,
     pubkey::Pubkey,
     timing::{duration_as_ms, timestamp},
@@ -309,7 +306,7 @@ impl BankingStage {
                 poh.has_bank(),
                 poh.would_be_leader(
                     (CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET - 1)
-                        * DEFAULT_TICKS_PER_SLOT,
+                        * CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 ),
             )
         };
@@ -539,7 +536,7 @@ impl BankingStage {
             signature_count,
         ) = bank.load_and_execute_transactions(
             batch,
-            MAX_PROCESSING_AGE,
+            *MAX_PROCESSING_AGE,
             transaction_status_sender.is_some(),
             transaction_status_sender.is_some(),
         );
@@ -790,9 +787,9 @@ impl BankingStage {
         // Drop the transaction if it will expire by the time the next node receives and processes it
         let api = perf_libs::api();
         let max_tx_fwd_delay = if api.is_none() {
-            MAX_TRANSACTION_FORWARDING_DELAY
+            CLOCK_CFG.MAX_TRANSACTION_FORWARDING_DELAY
         } else {
-            MAX_TRANSACTION_FORWARDING_DELAY_GPU
+            CLOCK_CFG.MAX_TRANSACTION_FORWARDING_DELAY_GPU
         };
         let result = bank.check_transactions(
             transactions,

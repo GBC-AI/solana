@@ -179,11 +179,11 @@ mod tests {
 
     #[test]
     fn test_get_recent_blockhashes() {
-        let mut blockhash_queue = BlockhashQueue::new(MAX_RECENT_BLOCKHASHES);
+        let mut blockhash_queue = BlockhashQueue::new(*MAX_RECENT_BLOCKHASHES);
         let recent_blockhashes = blockhash_queue.get_recent_blockhashes();
         // Sanity-check an empty BlockhashQueue
         assert_eq!(recent_blockhashes.count(), 0);
-        for i in 0..MAX_RECENT_BLOCKHASHES {
+        for i in 0..*MAX_RECENT_BLOCKHASHES {
             let hash = hash(&serialize(&i).unwrap());
             blockhash_queue.register_hash(&hash, &FeeCalculator::default());
         }
@@ -192,7 +192,7 @@ mod tests {
         for IterItem(_slot, hash, _fee_calc) in recent_blockhashes {
             assert_eq!(
                 Some(true),
-                blockhash_queue.check_hash_age(hash, MAX_RECENT_BLOCKHASHES)
+                blockhash_queue.check_hash_age(hash, *MAX_RECENT_BLOCKHASHES)
             );
         }
     }

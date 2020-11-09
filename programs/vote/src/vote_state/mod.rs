@@ -9,7 +9,7 @@ use solana_sdk::{
     account::Account,
     account_utils::State,
     clock::{Epoch, Slot, UnixTimestamp},
-    epoch_schedule::MAX_LEADER_SCHEDULE_EPOCH_OFFSET,
+    epoch_schedule::CFG as EPOCH_CFG,
     hash::Hash,
     instruction::InstructionError,
     keyed_account::KeyedAccount,
@@ -278,7 +278,7 @@ impl VoteState {
         vote_state.root_slot = Some(std::u64::MAX);
         vote_state.epoch_credits = vec![(0, 0, 0); MAX_EPOCH_CREDITS_HISTORY];
         let mut authorized_voters = AuthorizedVoters::default();
-        for i in 0..=MAX_LEADER_SCHEDULE_EPOCH_OFFSET {
+        for i in 0..=EPOCH_CFG.MAX_LEADER_SCHEDULE_EPOCH_OFFSET {
             authorized_voters.insert(i, solana_sdk::pubkey::new_rand());
         }
         vote_state.authorized_voters = authorized_voters;
@@ -1983,15 +1983,17 @@ mod tests {
         let vote_state = VoteState::get_max_sized_vote_state();
         let (start_leader_schedule_epoch, _) = vote_state.authorized_voters.last().unwrap();
         let start_current_epoch =
-            start_leader_schedule_epoch - MAX_LEADER_SCHEDULE_EPOCH_OFFSET + 1;
+            start_leader_schedule_epoch - EPOCH_CFG.MAX_LEADER_SCHEDULE_EPOCH_OFFSET + 1;
 
         let mut vote_state = Some(vote_state);
-        for i in start_current_epoch..start_current_epoch + 2 * MAX_LEADER_SCHEDULE_EPOCH_OFFSET {
+        for i in start_current_epoch
+            ..start_current_epoch + 2 * EPOCH_CFG.MAX_LEADER_SCHEDULE_EPOCH_OFFSET
+        {
             vote_state.as_mut().map(|vote_state| {
                 vote_state.set_new_authorized_voter(
                     &solana_sdk::pubkey::new_rand(),
                     i,
-                    i + MAX_LEADER_SCHEDULE_EPOCH_OFFSET,
+                    i + EPOCH_CFG.MAX_LEADER_SCHEDULE_EPOCH_OFFSET,
                     |_| Ok(()),
                 )
             });

@@ -406,7 +406,7 @@ mod tests {
             1,
             vec![
                 IterItem(0u64, &Hash::default(), &FeeCalculator::default());
-                sysvar::recent_blockhashes::MAX_ENTRIES
+                sysvar::recent_blockhashes::CFG.RECENT_BLOCKHASHES_MAX_ENTRIES
             ]
             .into_iter(),
         ))
@@ -1299,7 +1299,7 @@ mod tests {
                         &hash(&serialize(&0).unwrap()),
                         &FeeCalculator::default()
                     );
-                    sysvar::recent_blockhashes::MAX_ENTRIES
+                    sysvar::recent_blockhashes::CFG.RECENT_BLOCKHASHES_MAX_ENTRIES
                 ]
                 .into_iter(),
             ),

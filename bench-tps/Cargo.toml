@@ -27,6 +27,10 @@ solana-net-utils = { path = "../net-utils", version = "1.5.0" }
 solana-runtime = { path = "../runtime", version = "1.5.0" }
 solana-sdk = { path = "../sdk", version = "1.5.0" }
 solana-version = { path = "../version", version = "1.5.0" }
+serde_derive = "1.0.117"
+lazy_static = "1.4.0"
+
+toml-config = { path = "../toml-config" }
 
 [dev-dependencies]
 serial_test = "0.4.0"

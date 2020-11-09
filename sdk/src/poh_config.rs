@@ -1,4 +1,4 @@
-use crate::clock::DEFAULT_TICKS_PER_SECOND;
+use crate::clock::CFG as CLOCK_CFG;
 use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Debug, AbiExample)]
@@ -29,7 +29,7 @@ impl PohConfig {
 impl Default for PohConfig {
     fn default() -> Self {
         Self::new_sleep(Duration::from_micros(
-            1000 * 1000 / DEFAULT_TICKS_PER_SECOND,
+            1000 * 1000 / CLOCK_CFG.DEFAULT_TICKS_PER_SECOND,
         ))
     }
 }

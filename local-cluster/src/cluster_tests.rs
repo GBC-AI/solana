@@ -15,11 +15,9 @@ use solana_ledger::{
 };
 use solana_sdk::{
     client::SyncClient,
-    clock::{
-        self, Slot, DEFAULT_TICKS_PER_SECOND, DEFAULT_TICKS_PER_SLOT, NUM_CONSECUTIVE_LEADER_SLOTS,
-    },
+    clock::{self, Slot, CFG as CLOCK_CFG},
     commitment_config::CommitmentConfig,
-    epoch_schedule::MINIMUM_SLOTS_PER_EPOCH,
+    epoch_schedule::CFG as EPOCH_CFG,
     hash::Hash,
     poh_config::PohConfig,
     pubkey::Pubkey,
@@ -35,7 +33,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DEFAULT_SLOT_MILLIS: u64 = (DEFAULT_TICKS_PER_SLOT * 1000) / DEFAULT_TICKS_PER_SECOND;
+toml_config::derived_values! {
+    DEFAULT_SLOT_MILLIS: u64 = (CLOCK_CFG.DEFAULT_TICKS_PER_SLOT * 1000) / CLOCK_CFG.DEFAULT_TICKS_PER_SECOND;
+}
 
 /// Spend and verify from every node in the network
 pub fn spend_and_verify_all_nodes<S: ::std::hash::BuildHasher>(
@@ -131,7 +131,7 @@ pub fn validator_exit(entry_point_info: &ContactInfo, nodes: usize) {
         let client = create_client(node.client_facing_addr(), VALIDATOR_PORT_RANGE);
         assert!(client.validator_exit().unwrap());
     }
-    sleep(Duration::from_millis(DEFAULT_SLOT_MILLIS));
+    sleep(Duration::from_millis(*DEFAULT_SLOT_MILLIS));
     for node in &cluster_nodes {
         let client = create_client(node.client_facing_addr(), VALIDATOR_PORT_RANGE);
         assert!(client.validator_exit().is_err());
@@ -195,7 +195,7 @@ pub fn kill_entry_and_spend_and_verify_rest(
     assert!(cluster_nodes.len() >= nodes);
     let client = create_client(entry_point_info.client_facing_addr(), VALIDATOR_PORT_RANGE);
     // sleep long enough to make sure we are in epoch 3
-    let first_two_epoch_slots = MINIMUM_SLOTS_PER_EPOCH * (3 + 1);
+    let first_two_epoch_slots = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH * (3 + 1);
 
     for ingress_node in &cluster_nodes {
         client
@@ -212,7 +212,7 @@ pub fn kill_entry_and_spend_and_verify_rest(
     assert!(client.validator_exit().unwrap());
     info!("sleeping for some time");
     sleep(Duration::from_millis(
-        slot_millis * NUM_CONSECUTIVE_LEADER_SLOTS,
+        slot_millis * CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS,
     ));
     info!("done sleeping for 2 fortnights");
     for ingress_node in &cluster_nodes {
@@ -294,7 +294,7 @@ pub fn check_for_new_roots(num_new_roots: usize, contact_infos: &[ContactInfo], 
             }
             done = min_node >= num_new_roots;
         }
-        sleep(Duration::from_millis(clock::DEFAULT_MS_PER_SLOT / 2));
+        sleep(Duration::from_millis(*clock::DEFAULT_MS_PER_SLOT / 2));
     }
 }
 

@@ -32,9 +32,8 @@ use solana_metrics::{
 use solana_sdk::{
     account::{create_account, from_account, Account},
     clock::{
-        Epoch, Slot, SlotCount, SlotIndex, UnixTimestamp, DEFAULT_TICKS_PER_SECOND,
-        MAX_PROCESSING_AGE, MAX_RECENT_BLOCKHASHES, MAX_TRANSACTION_FORWARDING_DELAY,
-        SECONDS_PER_DAY,
+        Epoch, Slot, SlotCount, SlotIndex, UnixTimestamp, CFG as CLOCK_CFG,
+        DEFAULT_SLOTS_PER_EPOCH, MAX_PROCESSING_AGE, MAX_RECENT_BLOCKHASHES, SECONDS_PER_DAY,
     },
     epoch_info::EpochInfo,
     epoch_schedule::EpochSchedule,
@@ -704,7 +703,7 @@ pub struct Bank {
 
 impl Default for BlockhashQueue {
     fn default() -> Self {
-        Self::new(MAX_RECENT_BLOCKHASHES)
+        Self::new(*MAX_RECENT_BLOCKHASHES)
     }
 }
 
@@ -1879,7 +1878,7 @@ impl Bank {
             // After simulation, transactions will need to be forwarded to the leader
             // for processing. During forwarding, the transaction could expire if the
             // delay is not accounted for.
-            MAX_PROCESSING_AGE - MAX_TRANSACTION_FORWARDING_DELAY,
+            *MAX_PROCESSING_AGE - CLOCK_CFG.MAX_TRANSACTION_FORWARDING_DELAY,
             false,
             true,
         );
@@ -3148,7 +3147,7 @@ impl Bank {
     // Also, assume 500GB account data set as the extreme, then for 2 day (=48 hours) to collect
     // rent eagerly, we'll consume 5.7 MB/s IO bandwidth, bidirectionally.
     fn slot_count_in_two_day(&self) -> SlotCount {
-        2 * DEFAULT_TICKS_PER_SECOND * SECONDS_PER_DAY / self.ticks_per_slot
+        2 * CLOCK_CFG.DEFAULT_TICKS_PER_SECOND * SECONDS_PER_DAY / self.ticks_per_slot
     }
 
     fn slot_count_per_normal_epoch(&self) -> SlotCount {
@@ -3221,7 +3220,7 @@ impl Bank {
     #[must_use]
     pub fn process_transactions(&self, txs: &[Transaction]) -> Vec<Result<()>> {
         let batch = self.prepare_batch(txs, None);
-        self.load_execute_and_commit_transactions(&batch, MAX_PROCESSING_AGE, false, false, false)
+        self.load_execute_and_commit_transactions(&batch, *MAX_PROCESSING_AGE, false, false, false)
             .0
             .fee_collection_results
     }
@@ -4102,8 +4101,7 @@ mod tests {
     };
     use solana_sdk::{
         account_utils::StateMut,
-        clock::{DEFAULT_SLOTS_PER_EPOCH, DEFAULT_TICKS_PER_SLOT},
-        epoch_schedule::MINIMUM_SLOTS_PER_EPOCH,
+        epoch_schedule::CFG as EPOCH_CFG,
         feature::Feature,
         genesis_config::create_genesis_config,
         instruction::{AccountMeta, CompiledInstruction, Instruction, InstructionError},
@@ -4571,7 +4569,7 @@ mod tests {
         .genesis_config;
 
         genesis_config.epoch_schedule = EpochSchedule::custom(
-            MINIMUM_SLOTS_PER_EPOCH,
+            EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH,
             genesis_config.epoch_schedule.leader_schedule_slot_offset,
             false,
         );
@@ -5129,13 +5127,15 @@ mod tests {
             create_genesis_config_with_leader(5, &leader_pubkey, leader_lamports).genesis_config;
         genesis_config.cluster_type = ClusterType::MainnetBeta;
 
-        const SLOTS_PER_EPOCH: u64 = MINIMUM_SLOTS_PER_EPOCH as u64;
-        const LEADER_SCHEDULE_SLOT_OFFSET: u64 = SLOTS_PER_EPOCH * 3 - 3;
+        toml_config::derived_values! {
+            SLOTS_PER_EPOCH: u64 = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64;
+            LEADER_SCHEDULE_SLOT_OFFSET: u64 = *SLOTS_PER_EPOCH * 3 - 3;
+        }
         genesis_config.epoch_schedule =
-            EpochSchedule::custom(SLOTS_PER_EPOCH, LEADER_SCHEDULE_SLOT_OFFSET, false);
+            EpochSchedule::custom(*SLOTS_PER_EPOCH, *LEADER_SCHEDULE_SLOT_OFFSET, false);
 
         let mut bank = Arc::new(Bank::new(&genesis_config));
-        assert_eq!(DEFAULT_SLOTS_PER_EPOCH, 432_000);
+        assert_eq!(*DEFAULT_SLOTS_PER_EPOCH, 432_000);
         assert_eq!(bank.get_slots_in_epoch(bank.epoch()), 32);
         assert_eq!(bank.get_epoch_and_slot_index(bank.slot()), (0, 0));
         assert_eq!(bank.rent_collection_partitions(), vec![(0, 0, 432_000)]);
@@ -5199,13 +5199,15 @@ mod tests {
             create_genesis_config_with_leader(5, &leader_pubkey, leader_lamports).genesis_config;
         genesis_config.cluster_type = ClusterType::MainnetBeta;
 
-        const SLOTS_PER_EPOCH: u64 = MINIMUM_SLOTS_PER_EPOCH as u64;
-        const LEADER_SCHEDULE_SLOT_OFFSET: u64 = SLOTS_PER_EPOCH * 3 - 3;
+        toml_config::derived_values! {
+            SLOTS_PER_EPOCH: u64 = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64;
+            LEADER_SCHEDULE_SLOT_OFFSET: u64 = *SLOTS_PER_EPOCH * 3 - 3;
+        }
         genesis_config.epoch_schedule =
-            EpochSchedule::custom(SLOTS_PER_EPOCH, LEADER_SCHEDULE_SLOT_OFFSET, false);
+            EpochSchedule::custom(*SLOTS_PER_EPOCH, *LEADER_SCHEDULE_SLOT_OFFSET, false);
 
         let mut bank = Arc::new(Bank::new(&genesis_config));
-        assert_eq!(DEFAULT_SLOTS_PER_EPOCH, 432_000);
+        assert_eq!(*DEFAULT_SLOTS_PER_EPOCH, 432_000);
         assert_eq!(bank.get_slots_in_epoch(bank.epoch()), 32);
         assert_eq!(bank.get_epoch_and_slot_index(bank.slot()), (0, 0));
         assert_eq!(bank.rent_collection_partitions(), vec![(0, 0, 432_000)]);
@@ -5257,13 +5259,15 @@ mod tests {
             create_genesis_config_with_leader(5, &leader_pubkey, leader_lamports).genesis_config;
         genesis_config.cluster_type = ClusterType::MainnetBeta;
 
-        const SLOTS_PER_EPOCH: u64 = MINIMUM_SLOTS_PER_EPOCH as u64 * 8;
-        const LEADER_SCHEDULE_SLOT_OFFSET: u64 = SLOTS_PER_EPOCH * 3 - 3;
+        toml_config::derived_values! {
+            SLOTS_PER_EPOCH: u64 = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64 * 8;
+            LEADER_SCHEDULE_SLOT_OFFSET: u64 = *SLOTS_PER_EPOCH * 3 - 3;
+        }
         genesis_config.epoch_schedule =
-            EpochSchedule::custom(SLOTS_PER_EPOCH, LEADER_SCHEDULE_SLOT_OFFSET, true);
+            EpochSchedule::custom(*SLOTS_PER_EPOCH, *LEADER_SCHEDULE_SLOT_OFFSET, true);
 
         let mut bank = Arc::new(Bank::new(&genesis_config));
-        assert_eq!(DEFAULT_SLOTS_PER_EPOCH, 432_000);
+        assert_eq!(*DEFAULT_SLOTS_PER_EPOCH, 432_000);
         assert_eq!(bank.get_slots_in_epoch(bank.epoch()), 32);
         assert_eq!(bank.first_normal_epoch(), 3);
         assert_eq!(bank.get_epoch_and_slot_index(bank.slot()), (0, 0));
@@ -5313,10 +5317,12 @@ mod tests {
         let mut genesis_config =
             create_genesis_config_with_leader(5, &leader_pubkey, leader_lamports).genesis_config;
 
-        const SLOTS_PER_EPOCH: u64 = MINIMUM_SLOTS_PER_EPOCH as u64 * 8;
-        const LEADER_SCHEDULE_SLOT_OFFSET: u64 = SLOTS_PER_EPOCH * 3 - 3;
+        toml_config::derived_values! {
+            SLOTS_PER_EPOCH: u64 = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64 * 8;
+            LEADER_SCHEDULE_SLOT_OFFSET: u64 = *SLOTS_PER_EPOCH * 3 - 3;
+        }
         genesis_config.epoch_schedule =
-            EpochSchedule::custom(SLOTS_PER_EPOCH, LEADER_SCHEDULE_SLOT_OFFSET, true);
+            EpochSchedule::custom(*SLOTS_PER_EPOCH, *LEADER_SCHEDULE_SLOT_OFFSET, true);
 
         let mut bank = Arc::new(Bank::new(&genesis_config));
         assert_eq!(bank.get_slots_in_epoch(bank.epoch()), 32);
@@ -5810,8 +5816,8 @@ mod tests {
             poh_config: PohConfig {
                 target_tick_duration: Duration::from_secs(
                     SECONDS_PER_YEAR as u64
-                        / MINIMUM_SLOTS_PER_EPOCH as u64
-                        / DEFAULT_TICKS_PER_SLOT,
+                        / EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64
+                        / CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 ),
                 hashes_per_tick: None,
                 target_tick_count: None,
@@ -5928,8 +5934,8 @@ mod tests {
             poh_config: PohConfig {
                 target_tick_duration: Duration::from_secs(
                     SECONDS_PER_YEAR as u64
-                        / MINIMUM_SLOTS_PER_EPOCH as u64
-                        / DEFAULT_TICKS_PER_SLOT,
+                        / EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64
+                        / CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 ),
                 hashes_per_tick: None,
                 target_tick_count: None,
@@ -6642,7 +6648,7 @@ mod tests {
         let results_alice = bank
             .load_execute_and_commit_transactions(
                 &lock_result,
-                MAX_PROCESSING_AGE,
+                *MAX_PROCESSING_AGE,
                 false,
                 false,
                 false,
@@ -7229,13 +7235,15 @@ mod tests {
         let mut genesis_config =
             create_genesis_config_with_leader(5, &leader_pubkey, leader_lamports).genesis_config;
 
-        // set this up weird, forces future generation, odd mod(), etc.
-        //  this says: "vote_accounts for epoch X should be generated at slot index 3 in epoch X-2...
-        const SLOTS_PER_EPOCH: u64 = MINIMUM_SLOTS_PER_EPOCH as u64;
-        const LEADER_SCHEDULE_SLOT_OFFSET: u64 = SLOTS_PER_EPOCH * 3 - 3;
-        // no warmup allows me to do the normal division stuff below
+        toml_config::derived_values! {
+            // set this up weird, forces future generation, odd mod(), etc.
+            //  this says: "vote_accounts for epoch X should be generated at slot index 3 in epoch X-2...
+            SLOTS_PER_EPOCH: u64 = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64;
+            LEADER_SCHEDULE_SLOT_OFFSET: u64 = *SLOTS_PER_EPOCH * 3 - 3;
+            // no warmup allows me to do the normal division stuff below
+        }
         genesis_config.epoch_schedule =
-            EpochSchedule::custom(SLOTS_PER_EPOCH, LEADER_SCHEDULE_SLOT_OFFSET, false);
+            EpochSchedule::custom(*SLOTS_PER_EPOCH, *LEADER_SCHEDULE_SLOT_OFFSET, false);
 
         let parent = Arc::new(Bank::new(&genesis_config));
         let mut leader_vote_stake: Vec<_> = parent
@@ -7272,7 +7280,7 @@ mod tests {
 
         let mut epoch = 1;
         loop {
-            if epoch > LEADER_SCHEDULE_SLOT_OFFSET / SLOTS_PER_EPOCH {
+            if epoch > *LEADER_SCHEDULE_SLOT_OFFSET / *SLOTS_PER_EPOCH {
                 break;
             }
             let vote_accounts = parent.epoch_vote_accounts(epoch);
@@ -7292,7 +7300,7 @@ mod tests {
         let child = Bank::new_from_parent(
             &parent,
             &leader_pubkey,
-            SLOTS_PER_EPOCH - (LEADER_SCHEDULE_SLOT_OFFSET % SLOTS_PER_EPOCH),
+            *SLOTS_PER_EPOCH - (*LEADER_SCHEDULE_SLOT_OFFSET % *SLOTS_PER_EPOCH),
         );
 
         assert!(child.epoch_vote_accounts(epoch).is_some());
@@ -7311,7 +7319,7 @@ mod tests {
         let child = Bank::new_from_parent(
             &parent,
             &leader_pubkey,
-            SLOTS_PER_EPOCH - (LEADER_SCHEDULE_SLOT_OFFSET % SLOTS_PER_EPOCH) + 1,
+            *SLOTS_PER_EPOCH - (*LEADER_SCHEDULE_SLOT_OFFSET % *SLOTS_PER_EPOCH) + 1,
         );
         assert!(child.epoch_vote_accounts(epoch).is_some());
         assert_eq!(
@@ -7352,10 +7360,13 @@ mod tests {
 
         let bank = Bank::new(&genesis_config);
 
-        assert_eq!(bank.get_slots_in_epoch(0), MINIMUM_SLOTS_PER_EPOCH as u64);
+        assert_eq!(
+            bank.get_slots_in_epoch(0),
+            EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64
+        );
         assert_eq!(
             bank.get_slots_in_epoch(2),
-            (MINIMUM_SLOTS_PER_EPOCH * 4) as u64
+            (EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH * 4) as u64
         );
         assert_eq!(
             bank.get_slots_in_epoch(5000),
@@ -7675,7 +7686,7 @@ mod tests {
         let parent = Arc::new(Bank::new(&genesis_config));
         let bank1 = Arc::new(new_from_parent(&parent));
         let mut bank = bank1;
-        for _ in 0..MAX_CACHE_ENTRIES * 2 {
+        for _ in 0..*MAX_CACHE_ENTRIES * 2 {
             bank = Arc::new(new_from_parent(&bank));
             bank.squash();
         }
@@ -7683,7 +7694,7 @@ mod tests {
         let bank = new_from_parent(&bank);
         assert_eq!(
             bank.status_cache_ancestors(),
-            (bank.slot() - MAX_CACHE_ENTRIES as u64..=bank.slot()).collect::<Vec<_>>()
+            (bank.slot() - *MAX_CACHE_ENTRIES as u64..=bank.slot()).collect::<Vec<_>>()
         );
     }
 
@@ -8198,7 +8209,7 @@ mod tests {
         let nonce_hash = get_nonce_account(&bank, &nonce_pubkey).unwrap();
 
         /* Kick nonce hash off the blockhash_queue */
-        for _ in 0..MAX_RECENT_BLOCKHASHES + 1 {
+        for _ in 0..*MAX_RECENT_BLOCKHASHES + 1 {
             goto_end_of_slot(Arc::get_mut(&mut bank).unwrap());
             bank = Arc::new(new_from_parent(&bank));
         }
@@ -8258,7 +8269,7 @@ mod tests {
         let nonce_hash = new_nonce;
 
         /* Kick nonce hash off the blockhash_queue */
-        for _ in 0..MAX_RECENT_BLOCKHASHES + 1 {
+        for _ in 0..*MAX_RECENT_BLOCKHASHES + 1 {
             goto_end_of_slot(Arc::get_mut(&mut bank).unwrap());
             bank = Arc::new(new_from_parent(&bank));
         }
@@ -8319,7 +8330,7 @@ mod tests {
             .unwrap();
 
         // Kick nonce hash off the blockhash_queue
-        for _ in 0..MAX_RECENT_BLOCKHASHES + 1 {
+        for _ in 0..*MAX_RECENT_BLOCKHASHES + 1 {
             goto_end_of_slot(Arc::get_mut(&mut bank).unwrap());
             bank = Arc::new(new_from_parent(&bank));
         }
@@ -8439,7 +8450,7 @@ mod tests {
         let (transaction_results, transaction_balances_set, inner_instructions, transaction_logs) =
             bank0.load_execute_and_commit_transactions(
                 &lock_result,
-                MAX_PROCESSING_AGE,
+                *MAX_PROCESSING_AGE,
                 true,
                 false,
                 false,

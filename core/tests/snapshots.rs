@@ -311,7 +311,7 @@ mod tests {
         let saved_slot = 4;
         let mut saved_archive_path = None;
 
-        for forks in 0..MAX_CACHE_ENTRIES + 2 {
+        for forks in 0..*MAX_CACHE_ENTRIES + 2 {
             let bank = Bank::new_from_parent(
                 &bank_forks[forks as u64],
                 &Pubkey::default(),
@@ -381,7 +381,7 @@ mod tests {
         assert!(snapshot_utils::get_snapshot_paths(&snapshots_dir)
             .into_iter()
             .map(|path| path.slot)
-            .eq(3..=MAX_CACHE_ENTRIES as u64 + 2));
+            .eq(3..=*MAX_CACHE_ENTRIES as u64 + 2));
 
         // Create a SnapshotPackagerService to create tarballs from all the pending
         // SnapshotPackage's on the channel. By the time this service starts, we have already
@@ -433,7 +433,7 @@ mod tests {
 
     fn run_test_slots_to_snapshot(snapshot_version: SnapshotVersion, cluster_type: ClusterType) {
         solana_logger::setup();
-        let num_set_roots = MAX_CACHE_ENTRIES * 2;
+        let num_set_roots = *MAX_CACHE_ENTRIES * 2;
 
         for add_root_interval in &[1, 3, 9] {
             let (snapshot_sender, _snapshot_receiver) = unbounded();
@@ -460,7 +460,7 @@ mod tests {
                 );
             }
 
-            let num_old_slots = num_set_roots * *add_root_interval - MAX_CACHE_ENTRIES + 1;
+            let num_old_slots = num_set_roots * *add_root_interval - *MAX_CACHE_ENTRIES + 1;
             let expected_slots_to_snapshot =
                 num_old_slots as u64..=num_set_roots as u64 * *add_root_interval as u64;
 
@@ -488,7 +488,7 @@ mod tests {
             run_bank_forks_snapshot_n(
                 snapshot_version,
                 cluster_type,
-                (MAX_CACHE_ENTRIES * 2 + 1) as u64,
+                (*MAX_CACHE_ENTRIES * 2 + 1) as u64,
                 |bank, mint_keypair| {
                     let tx = system_transaction::transfer(
                         &mint_keypair,

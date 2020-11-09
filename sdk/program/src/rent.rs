@@ -13,28 +13,19 @@ pub struct Rent {
     pub burn_percent: u8,
 }
 
-/// default rental rate in lamports/byte-year, based on:
-///  10^9 lamports per SOL
-///  $1 per SOL
-///  $0.01 per megabyte day
-///  $3.65 per megabyte year
-pub const DEFAULT_LAMPORTS_PER_BYTE_YEAR: u64 = 1_000_000_000 / 100 * 365 / (1024 * 1024);
-
-/// default amount of time (in years) the balance has to include rent for
-pub const DEFAULT_EXEMPTION_THRESHOLD: f64 = 2.0;
-
-/// default percentage of rent to burn (Valid values are 0 to 100)
-pub const DEFAULT_BURN_PERCENT: u8 = 50;
-
-/// account storage overhead for calculation of base rent
-pub const ACCOUNT_STORAGE_OVERHEAD: u64 = 128;
+toml_config::package_config! {
+    DEFAULT_LAMPORTS_PER_BYTE_YEAR: u64,
+    DEFAULT_EXEMPTION_THRESHOLD: f64,
+    DEFAULT_BURN_PERCENT: u8,
+    ACCOUNT_STORAGE_OVERHEAD: u64,
+}
 
 impl Default for Rent {
     fn default() -> Self {
         Self {
-            lamports_per_byte_year: DEFAULT_LAMPORTS_PER_BYTE_YEAR,
-            exemption_threshold: DEFAULT_EXEMPTION_THRESHOLD,
-            burn_percent: DEFAULT_BURN_PERCENT,
+            lamports_per_byte_year: CFG.DEFAULT_LAMPORTS_PER_BYTE_YEAR,
+            exemption_threshold: CFG.DEFAULT_EXEMPTION_THRESHOLD,
+            burn_percent: CFG.DEFAULT_BURN_PERCENT,
         }
     }
 }
@@ -48,7 +39,7 @@ impl Rent {
     /// minimum balance due for a given size Account::data.len()
     pub fn minimum_balance(&self, data_len: usize) -> u64 {
         let bytes = data_len as u64;
-        (((ACCOUNT_STORAGE_OVERHEAD + bytes) * self.lamports_per_byte_year) as f64
+        (((CFG.ACCOUNT_STORAGE_OVERHEAD + bytes) * self.lamports_per_byte_year) as f64
             * self.exemption_threshold) as u64
     }
 
@@ -63,7 +54,7 @@ impl Rent {
             (0, true)
         } else {
             (
-                ((self.lamports_per_byte_year * (data_len as u64 + ACCOUNT_STORAGE_OVERHEAD))
+                ((self.lamports_per_byte_year * (data_len as u64 + CFG.ACCOUNT_STORAGE_OVERHEAD))
                     as f64
                     * years_elapsed) as u64,
                 false,
@@ -90,15 +81,15 @@ mod tests {
         assert_eq!(
             default_rent.due(0, 2, 1.2),
             (
-                (((2 + ACCOUNT_STORAGE_OVERHEAD) * DEFAULT_LAMPORTS_PER_BYTE_YEAR) as f64 * 1.2)
-                    as u64,
-                DEFAULT_LAMPORTS_PER_BYTE_YEAR == 0
+                (((2 + CFG.ACCOUNT_STORAGE_OVERHEAD) * CFG.DEFAULT_LAMPORTS_PER_BYTE_YEAR) as f64
+                    * 1.2) as u64,
+                CFG.DEFAULT_LAMPORTS_PER_BYTE_YEAR == 0
             )
         );
         assert_eq!(
             default_rent.due(
-                (((2 + ACCOUNT_STORAGE_OVERHEAD) * DEFAULT_LAMPORTS_PER_BYTE_YEAR) as f64
-                    * DEFAULT_EXEMPTION_THRESHOLD) as u64,
+                (((2 + CFG.ACCOUNT_STORAGE_OVERHEAD) * CFG.DEFAULT_LAMPORTS_PER_BYTE_YEAR) as f64
+                    * CFG.DEFAULT_EXEMPTION_THRESHOLD) as u64,
                 2,
                 1.2
             ),
@@ -112,15 +103,15 @@ mod tests {
         assert_eq!(
             custom_rent.due(0, 2, 1.2),
             (
-                (((2 + ACCOUNT_STORAGE_OVERHEAD) * custom_rent.lamports_per_byte_year) as f64 * 1.2)
-                    as u64,
+                (((2 + CFG.ACCOUNT_STORAGE_OVERHEAD) * custom_rent.lamports_per_byte_year) as f64
+                    * 1.2) as u64,
                 false
             )
         );
 
         assert_eq!(
             custom_rent.due(
-                (((2 + ACCOUNT_STORAGE_OVERHEAD) * custom_rent.lamports_per_byte_year) as f64
+                (((2 + CFG.ACCOUNT_STORAGE_OVERHEAD) * custom_rent.lamports_per_byte_year) as f64
                     * custom_rent.exemption_threshold) as u64,
                 2,
                 1.2
@@ -133,11 +124,16 @@ mod tests {
     #[test]
     #[should_panic]
     fn show_rent_model() {
-        use crate::{clock::*, sysvar::Sysvar};
+        use crate::{
+            clock::{CFG as CLOCK_CFG, *},
+            sysvar::Sysvar,
+        };
 
         const SECONDS_PER_YEAR: f64 = 365.242_199 * 24.0 * 60.0 * 60.0;
-        const SLOTS_PER_YEAR: f64 =
-            SECONDS_PER_YEAR / (DEFAULT_TICKS_PER_SLOT as f64 / DEFAULT_TICKS_PER_SECOND as f64);
+        toml_config::derived_values! {
+            SLOTS_PER_YEAR: f64 = SECONDS_PER_YEAR
+                / (CLOCK_CFG.DEFAULT_TICKS_PER_SLOT as f64 / CLOCK_CFG.DEFAULT_TICKS_PER_SECOND as f64);
+        };
 
         let rent = Rent::default();
         panic!(
@@ -151,7 +147,7 @@ mod tests {
             rent.due(
                 0,
                 0,
-                (1.0 / SLOTS_PER_YEAR) * DEFAULT_SLOTS_PER_EPOCH as f64,
+                (1.0 / *SLOTS_PER_YEAR) * *DEFAULT_SLOTS_PER_EPOCH as f64,
             )
             .0,
             rent.minimum_balance(0),
@@ -159,7 +155,7 @@ mod tests {
             rent.due(
                 0,
                 crate::sysvar::stake_history::StakeHistory::size_of(),
-                (1.0 / SLOTS_PER_YEAR) * DEFAULT_SLOTS_PER_EPOCH as f64,
+                (1.0 / *SLOTS_PER_YEAR) * *DEFAULT_SLOTS_PER_EPOCH as f64,
             )
             .0,
             rent.minimum_balance(crate::sysvar::stake_history::StakeHistory::size_of()),

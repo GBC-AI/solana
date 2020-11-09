@@ -16,7 +16,7 @@ use solana_ledger::leader_schedule_cache::LeaderScheduleCache;
 use solana_ledger::poh::Poh;
 use solana_runtime::bank::Bank;
 pub use solana_sdk::clock::Slot;
-use solana_sdk::clock::NUM_CONSECUTIVE_LEADER_SLOTS;
+use solana_sdk::clock::CFG as CLOCK_CFG;
 use solana_sdk::hash::Hash;
 use solana_sdk::poh_config::PohConfig;
 use solana_sdk::pubkey::Pubkey;
@@ -140,7 +140,7 @@ impl PohRecorder {
     }
 
     fn is_same_fork_as_previous_leader(&self, slot: Slot) -> bool {
-        (slot.saturating_sub(NUM_CONSECUTIVE_LEADER_SLOTS)..slot).any(|slot| {
+        (slot.saturating_sub(CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS)..slot).any(|slot| {
             // Check if the last slot Poh reset to was any of the
             // previous leader's slots.
             // If so, PoH is currently building on the previous leader's blocks
@@ -231,7 +231,8 @@ impl PohRecorder {
                 0,
                 cmp::min(
                     ticks_per_slot * CFG.MAX_GRACE_SLOTS,
-                    ticks_per_slot * NUM_CONSECUTIVE_LEADER_SLOTS / CFG.GRACE_TICKS_FACTOR,
+                    ticks_per_slot * CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS
+                        / CFG.GRACE_TICKS_FACTOR,
                 ),
             ))
     }
@@ -512,7 +513,7 @@ mod tests {
     use solana_ledger::genesis_utils::{create_genesis_config, GenesisConfigInfo};
     use solana_ledger::{blockstore::Blockstore, blockstore_meta::SlotMeta, get_tmp_ledger_path};
     use solana_perf::test_tx::test_tx;
-    use solana_sdk::clock::DEFAULT_TICKS_PER_SLOT;
+    use solana_sdk::clock::CFG as CLOCK_CFG;
     use solana_sdk::hash::hash;
     use std::sync::mpsc::sync_channel;
 
@@ -529,7 +530,7 @@ mod tests {
                 prev_hash,
                 0,
                 Some((4, 4)),
-                DEFAULT_TICKS_PER_SLOT,
+                CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
@@ -556,7 +557,7 @@ mod tests {
                 prev_hash,
                 0,
                 Some((4, 4)),
-                DEFAULT_TICKS_PER_SLOT,
+                CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
@@ -582,7 +583,7 @@ mod tests {
                 Hash::default(),
                 0,
                 Some((4, 4)),
-                DEFAULT_TICKS_PER_SLOT,
+                CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
@@ -937,7 +938,7 @@ mod tests {
                 Hash::default(),
                 0,
                 Some((4, 4)),
-                DEFAULT_TICKS_PER_SLOT,
+                CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
@@ -964,7 +965,7 @@ mod tests {
                 Hash::default(),
                 0,
                 Some((4, 4)),
-                DEFAULT_TICKS_PER_SLOT,
+                CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
@@ -992,7 +993,7 @@ mod tests {
                 Hash::default(),
                 0,
                 Some((4, 4)),
-                DEFAULT_TICKS_PER_SLOT,
+                CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
                 &Pubkey::default(),
                 &Arc::new(blockstore),
                 &Arc::new(LeaderScheduleCache::default()),
@@ -1007,7 +1008,10 @@ mod tests {
             poh_recorder.reset(hash(b"hello"), 0, Some((4, 4))); // parent slot 0 implies tick_height of 3
             assert_eq!(poh_recorder.tick_cache.len(), 0);
             poh_recorder.tick();
-            assert_eq!(poh_recorder.tick_height, DEFAULT_TICKS_PER_SLOT + 1);
+            assert_eq!(
+                poh_recorder.tick_height,
+                CLOCK_CFG.DEFAULT_TICKS_PER_SLOT + 1
+            );
         }
         Blockstore::destroy(&ledger_path).unwrap();
     }
@@ -1150,7 +1154,7 @@ mod tests {
             assert_eq!(poh_recorder.reached_leader_tick(0), true);
 
             let grace_ticks = bank.ticks_per_slot() * CFG.MAX_GRACE_SLOTS;
-            let new_tick_height = NUM_CONSECUTIVE_LEADER_SLOTS * bank.ticks_per_slot();
+            let new_tick_height = CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS * bank.ticks_per_slot();
             for _ in 0..new_tick_height {
                 poh_recorder.tick();
             }
@@ -1163,7 +1167,8 @@ mod tests {
             assert!(!poh_recorder.reached_leader_tick(new_tick_height + grace_ticks));
 
             // Tick `NUM_CONSECUTIVE_LEADER_SLOTS` more times
-            let new_tick_height = 2 * NUM_CONSECUTIVE_LEADER_SLOTS * bank.ticks_per_slot();
+            let new_tick_height =
+                2 * CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS * bank.ticks_per_slot();
             for _ in 0..new_tick_height {
                 poh_recorder.tick();
             }

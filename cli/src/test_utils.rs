@@ -24,6 +24,6 @@ pub fn check_ready(rpc_client: &RpcClient) {
         .unwrap()
         < 5
     {
-        sleep(Duration::from_millis(DEFAULT_MS_PER_SLOT));
+        sleep(Duration::from_millis(*DEFAULT_MS_PER_SLOT));
     }
 }

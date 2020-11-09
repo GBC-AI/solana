@@ -1,6 +1,6 @@
 use crate::account::{create_account, to_account, Account};
 use solana_program::sysvar::recent_blockhashes::{
-    IntoIterSorted, IterItem, RecentBlockhashes, MAX_ENTRIES,
+    IntoIterSorted, IterItem, RecentBlockhashes, CFG as RECENT_BLOCKHASHES_CFG,
 };
 use std::{collections::BinaryHeap, iter::FromIterator};
 
@@ -10,7 +10,8 @@ where
 {
     let sorted = BinaryHeap::from_iter(recent_blockhash_iter);
     let sorted_iter = IntoIterSorted::new(sorted);
-    let recent_blockhash_iter = sorted_iter.take(MAX_ENTRIES);
+    let recent_blockhash_iter =
+        sorted_iter.take(RECENT_BLOCKHASHES_CFG.RECENT_BLOCKHASHES_MAX_ENTRIES);
     let recent_blockhashes = RecentBlockhashes::from_iter(recent_blockhash_iter);
     to_account(&recent_blockhashes, account)
 }
@@ -48,10 +49,17 @@ mod tests {
         let def_fees = FeeCalculator::default();
         let account = create_account_with_data(
             42,
-            vec![IterItem(0u64, &def_hash, &def_fees); MAX_ENTRIES].into_iter(),
+            vec![
+                IterItem(0u64, &def_hash, &def_fees);
+                RECENT_BLOCKHASHES_CFG.RECENT_BLOCKHASHES_MAX_ENTRIES
+            ]
+            .into_iter(),
         );
         let recent_blockhashes = from_account::<RecentBlockhashes>(&account).unwrap();
-        assert_eq!(recent_blockhashes.len(), MAX_ENTRIES);
+        assert_eq!(
+            recent_blockhashes.len(),
+            RECENT_BLOCKHASHES_CFG.RECENT_BLOCKHASHES_MAX_ENTRIES
+        );
     }
 
     #[test]
@@ -60,16 +68,24 @@ mod tests {
         let def_fees = FeeCalculator::default();
         let account = create_account_with_data(
             42,
-            vec![IterItem(0u64, &def_hash, &def_fees); MAX_ENTRIES + 1].into_iter(),
+            vec![
+                IterItem(0u64, &def_hash, &def_fees);
+                RECENT_BLOCKHASHES_CFG.RECENT_BLOCKHASHES_MAX_ENTRIES + 1
+            ]
+            .into_iter(),
         );
         let recent_blockhashes = from_account::<RecentBlockhashes>(&account).unwrap();
-        assert_eq!(recent_blockhashes.len(), MAX_ENTRIES);
+        assert_eq!(
+            recent_blockhashes.len(),
+            RECENT_BLOCKHASHES_CFG.RECENT_BLOCKHASHES_MAX_ENTRIES
+        );
     }
 
     #[test]
     fn test_create_account_unsorted() {
         let def_fees = FeeCalculator::default();
-        let mut unsorted_blocks: Vec<_> = (0..MAX_ENTRIES)
+        let mut unsorted_blocks: Vec<_> = (0..RECENT_BLOCKHASHES_CFG
+            .RECENT_BLOCKHASHES_MAX_ENTRIES)
             .map(|i| {
                 (i as u64, {
                     // create hash with visibly recognizable ordering

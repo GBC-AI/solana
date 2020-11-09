@@ -136,7 +136,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
     let default_target_tick_duration =
         timing::duration_as_us(&PohConfig::default().target_tick_duration);
-    let default_ticks_per_slot = &clock::DEFAULT_TICKS_PER_SLOT.to_string();
+    let default_ticks_per_slot = &clock::CFG.DEFAULT_TICKS_PER_SLOT.to_string();
     let default_cluster_type = "mainnet-beta";
     let default_genesis_archive_unpacked_size = MAX_GENESIS_ARCHIVE_UNPACKED_SIZE.to_string();
 
@@ -441,8 +441,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 poh_config.hashes_per_tick = Some(hashes_per_tick);
             }
             ClusterType::Devnet | ClusterType::Testnet | ClusterType::MainnetBeta => {
-                poh_config.hashes_per_tick =
-                    Some(clock::DEFAULT_HASHES_PER_SECOND / clock::DEFAULT_TICKS_PER_SECOND);
+                poh_config.hashes_per_tick = Some(
+                    clock::CFG.DEFAULT_HASHES_PER_SECOND / clock::CFG.DEFAULT_TICKS_PER_SECOND,
+                );
             }
         },
         "sleep" => {
@@ -457,9 +458,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         value_t_or_exit!(matches, "slots_per_epoch", u64)
     } else {
         match cluster_type {
-            ClusterType::Development => clock::DEFAULT_DEV_SLOTS_PER_EPOCH,
+            ClusterType::Development => clock::CFG.DEFAULT_DEV_SLOTS_PER_EPOCH,
             ClusterType::Devnet | ClusterType::Testnet | ClusterType::MainnetBeta => {
-                clock::DEFAULT_SLOTS_PER_EPOCH
+                *clock::DEFAULT_SLOTS_PER_EPOCH
             }
         }
     };

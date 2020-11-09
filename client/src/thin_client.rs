@@ -216,7 +216,7 @@ impl ThinClient {
             let mut buf = vec![0; serialized_size(&transaction).unwrap() as usize];
             let mut wr = std::io::Cursor::new(&mut buf[..]);
             let mut num_confirmed = 0;
-            let mut wait_time = MAX_PROCESSING_AGE;
+            let mut wait_time = *MAX_PROCESSING_AGE;
             serialize_into(&mut wr, &transaction)
                 .expect("serialize Transaction in pub fn transfer_signed");
             // resend the same transaction until the transaction has no chance of succeeding
@@ -239,7 +239,7 @@ impl ThinClient {
                     // all pending confirmations. Resending the transaction could result into
                     // extra transaction fees
                     wait_time = wait_time.max(
-                        MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
+                        *MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
                     );
                 }
             }

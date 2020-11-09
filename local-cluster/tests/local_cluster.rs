@@ -35,7 +35,7 @@ use solana_sdk::{
     client::{AsyncClient, SyncClient},
     clock::{self, Slot},
     commitment_config::CommitmentConfig,
-    epoch_schedule::MINIMUM_SLOTS_PER_EPOCH,
+    epoch_schedule::CFG as EPOCH_CFG,
     genesis_config::ClusterType,
     hash::Hash,
     poh_config::PohConfig,
@@ -330,7 +330,7 @@ fn run_cluster_partition<E, F>(
             validator_config.fixed_leader_schedule = Some(fixed_schedule);
             (
                 validator_keys,
-                num_slots_per_rotation * clock::DEFAULT_MS_PER_SLOT,
+                num_slots_per_rotation * *clock::DEFAULT_MS_PER_SLOT,
             )
         } else {
             (
@@ -634,7 +634,7 @@ fn test_two_unbalanced_stakes() {
     let mut validator_config = ValidatorConfig::default();
     let num_ticks_per_second = 100;
     let num_ticks_per_slot = 10;
-    let num_slots_per_epoch = MINIMUM_SLOTS_PER_EPOCH as u64;
+    let num_slots_per_epoch = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64;
 
     validator_config.rpc_config.enable_validator_exit = true;
     let mut cluster = LocalCluster::new(&ClusterConfig {
@@ -692,7 +692,7 @@ fn test_forwarding() {
 fn test_restart_node() {
     solana_logger::setup();
     error!("test_restart_node");
-    let slots_per_epoch = MINIMUM_SLOTS_PER_EPOCH * 2 as u64;
+    let slots_per_epoch = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH * 2 as u64;
     let ticks_per_slot = 16;
     let validator_config = ValidatorConfig::default();
     let mut cluster = LocalCluster::new(&ClusterConfig {
@@ -708,14 +708,14 @@ fn test_restart_node() {
     cluster_tests::sleep_n_epochs(
         1.0,
         &cluster.genesis_config.poh_config,
-        clock::DEFAULT_TICKS_PER_SLOT,
+        clock::CFG.DEFAULT_TICKS_PER_SLOT,
         slots_per_epoch,
     );
     cluster.exit_restart_node(&nodes[0], validator_config);
     cluster_tests::sleep_n_epochs(
         0.5,
         &cluster.genesis_config.poh_config,
-        clock::DEFAULT_TICKS_PER_SLOT,
+        clock::CFG.DEFAULT_TICKS_PER_SLOT,
         slots_per_epoch,
     );
     cluster_tests::send_many_transactions(
@@ -1327,8 +1327,8 @@ fn test_faulty_node(faulty_node_type: BroadcastStageType) {
         cluster_lamports: 10_000,
         node_stakes,
         validator_configs,
-        slots_per_epoch: MINIMUM_SLOTS_PER_EPOCH * 2 as u64,
-        stakers_slot_offset: MINIMUM_SLOTS_PER_EPOCH * 2 as u64,
+        slots_per_epoch: EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH * 2 as u64,
+        stakers_slot_offset: EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH * 2 as u64,
         ..ClusterConfig::default()
     };
 

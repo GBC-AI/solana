@@ -3,7 +3,7 @@
 use solana_ledger::blockstore::{Blockstore, PurgeType};
 use solana_ledger::blockstore_db::Result as BlockstoreResult;
 use solana_measure::measure::Measure;
-use solana_sdk::clock::{Slot, DEFAULT_TICKS_PER_SLOT, TICKS_PER_DAY};
+use solana_sdk::clock::{Slot, CFG as CLOCK_CFG, TICKS_PER_DAY};
 use std::string::ToString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -18,9 +18,11 @@ toml_config::package_config! {
     DEFAULT_PURGE_SLOT_INTERVAL: u64,
 }
 
-// Compacting at a slower interval than purging helps keep IOPS down.
-// Once a day should be ample
-const DEFAULT_COMPACTION_SLOT_INTERVAL: u64 = TICKS_PER_DAY / DEFAULT_TICKS_PER_SLOT;
+toml_config::derived_values! {
+    // Compacting at a slower interval than purging helps keep IOPS down.
+    // Once a day should be ample
+    DEFAULT_COMPACTION_SLOT_INTERVAL: u64 = *TICKS_PER_DAY / CLOCK_CFG.DEFAULT_TICKS_PER_SLOT;
+}
 
 pub struct LedgerCleanupService {
     t_cleanup: JoinHandle<()>,
@@ -54,7 +56,7 @@ impl LedgerCleanupService {
                     &mut last_purge_slot,
                     CFG.DEFAULT_PURGE_SLOT_INTERVAL,
                     &mut last_compaction_slot,
-                    DEFAULT_COMPACTION_SLOT_INTERVAL,
+                    *DEFAULT_COMPACTION_SLOT_INTERVAL,
                 ) {
                     match e {
                         RecvTimeoutError::Disconnected => break,

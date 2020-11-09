@@ -13,7 +13,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub const MAX_CACHE_ENTRIES: usize = MAX_RECENT_BLOCKHASHES;
+toml_config::derived_values! {
+    MAX_CACHE_ENTRIES: usize = *MAX_RECENT_BLOCKHASHES;
+}
 const CACHED_SIGNATURE_SIZE: usize = 20;
 
 // Store forks in a single chunk of memory to avoid another lookup.
@@ -197,7 +199,7 @@ impl<T: Serialize + Clone> StatusCache<T> {
     }
 
     pub fn purge_roots(&mut self) {
-        if self.roots.len() > MAX_CACHE_ENTRIES {
+        if self.roots.len() > *MAX_CACHE_ENTRIES {
             if let Some(min) = self.roots.iter().min().cloned() {
                 self.roots.remove(&min);
                 self.cache.retain(|_, (fork, _, _)| *fork > min);
@@ -354,7 +356,7 @@ mod tests {
         let ancestors = vec![(0, 0)].into_iter().collect();
         status_cache.insert(&blockhash, &sig, 0, ());
         status_cache.insert(&blockhash, &sig, 1, ());
-        for i in 0..(MAX_CACHE_ENTRIES + 1) {
+        for i in 0..(*MAX_CACHE_ENTRIES + 1) {
             status_cache.add_root(i as u64);
         }
         assert!(status_cache
@@ -369,7 +371,7 @@ mod tests {
         let blockhash = hash(Hash::default().as_ref());
         let ancestors = HashMap::new();
         status_cache.insert(&blockhash, &sig, 0, ());
-        for i in 0..(MAX_CACHE_ENTRIES + 1) {
+        for i in 0..(*MAX_CACHE_ENTRIES + 1) {
             status_cache.add_root(i as u64);
         }
         assert_eq!(
@@ -444,10 +446,10 @@ mod tests {
         status_cache.insert(&blockhash, &sig, 0, ());
         status_cache.insert(&blockhash, &sig, 1, ());
         status_cache.insert(&blockhash2, &sig, 1, ());
-        for i in 0..(MAX_CACHE_ENTRIES + 1) {
+        for i in 0..(*MAX_CACHE_ENTRIES + 1) {
             status_cache.add_root(i as u64);
         }
-        let slots: Vec<_> = (0_u64..MAX_CACHE_ENTRIES as u64 + 1).collect();
+        let slots: Vec<_> = (0_u64..*MAX_CACHE_ENTRIES as u64 + 1).collect();
         assert_eq!(status_cache.slot_deltas.len(), 1);
         assert!(status_cache.slot_deltas.get(&1).is_some());
         let slot_deltas = status_cache.slot_deltas(&slots);
@@ -458,7 +460,7 @@ mod tests {
     #[test]
     #[allow(clippy::assertions_on_constants)]
     fn test_age_sanity() {
-        assert!(MAX_CACHE_ENTRIES <= MAX_RECENT_BLOCKHASHES);
+        assert!(*MAX_CACHE_ENTRIES <= *MAX_RECENT_BLOCKHASHES);
     }
 
     #[test]

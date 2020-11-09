@@ -1,4 +1,4 @@
-use crate::clock::{DEFAULT_TICKS_PER_SECOND, DEFAULT_TICKS_PER_SLOT};
+use crate::clock::CFG as CLOCK_CFG;
 use crate::message::Message;
 use crate::secp256k1_program;
 use log::*;
@@ -86,9 +86,13 @@ pub struct FeeRateGovernor {
     pub burn_percent: u8,
 }
 
-pub const DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE: u64 = 10_000;
-pub const DEFAULT_TARGET_SIGNATURES_PER_SLOT: u64 =
-    50_000 * DEFAULT_TICKS_PER_SLOT / DEFAULT_TICKS_PER_SECOND;
+toml_config::package_config! {
+    DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE: u64,
+}
+toml_config::derived_values! {
+    DEFAULT_TARGET_SIGNATURES_PER_SLOT: u64 =
+        50_000 * CLOCK_CFG.DEFAULT_TICKS_PER_SLOT / CLOCK_CFG.DEFAULT_TICKS_PER_SECOND;
+}
 
 // Percentage of tx fees to burn
 pub const DEFAULT_BURN_PERCENT: u8 = 50;
@@ -97,8 +101,8 @@ impl Default for FeeRateGovernor {
     fn default() -> Self {
         Self {
             lamports_per_signature: 0,
-            target_lamports_per_signature: DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE,
-            target_signatures_per_slot: DEFAULT_TARGET_SIGNATURES_PER_SLOT,
+            target_lamports_per_signature: CFG.DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE,
+            target_signatures_per_slot: *DEFAULT_TARGET_SIGNATURES_PER_SLOT,
             min_lamports_per_signature: 0,
             max_lamports_per_signature: 0,
             burn_percent: DEFAULT_BURN_PERCENT,
@@ -282,26 +286,26 @@ mod tests {
         let f0 = FeeRateGovernor::default();
         assert_eq!(
             f0.target_signatures_per_slot,
-            DEFAULT_TARGET_SIGNATURES_PER_SLOT
+            *DEFAULT_TARGET_SIGNATURES_PER_SLOT
         );
         assert_eq!(
             f0.target_lamports_per_signature,
-            DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE
+            CFG.DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE
         );
         assert_eq!(f0.lamports_per_signature, 0);
 
-        let f1 = FeeRateGovernor::new_derived(&f0, DEFAULT_TARGET_SIGNATURES_PER_SLOT);
+        let f1 = FeeRateGovernor::new_derived(&f0, *DEFAULT_TARGET_SIGNATURES_PER_SLOT);
         assert_eq!(
             f1.target_signatures_per_slot,
-            DEFAULT_TARGET_SIGNATURES_PER_SLOT
+            *DEFAULT_TARGET_SIGNATURES_PER_SLOT
         );
         assert_eq!(
             f1.target_lamports_per_signature,
-            DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE
+            CFG.DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE
         );
         assert_eq!(
             f1.lamports_per_signature,
-            DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE / 2
+            CFG.DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE / 2
         ); // min
     }
 

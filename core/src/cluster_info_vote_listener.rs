@@ -434,7 +434,7 @@ impl ClusterInfoVoteListener {
             }
 
             let root_bank = bank_forks.read().unwrap().root_bank().clone();
-            if last_process_root.elapsed().as_millis() > DEFAULT_MS_PER_SLOT as u128 {
+            if last_process_root.elapsed().as_millis() > *DEFAULT_MS_PER_SLOT as u128 {
                 let unrooted_optimistic_slots = confirmation_verifier
                     .verify_for_unrooted_optimistic_slots(&root_bank, &blockstore);
                 // SlotVoteTracker's for all `slots` in `unrooted_optimistic_slots`

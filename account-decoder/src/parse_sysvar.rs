@@ -190,7 +190,7 @@ struct SlotHistoryBits(BitVec<u64>);
 
 impl std::fmt::Debug for SlotHistoryBits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for i in 0..slot_history::MAX_ENTRIES {
+        for i in 0..slot_history::CFG.SLOT_HISTORY_MAX_ENTRIES {
             if self.0.get(i) {
                 write!(f, "1")?;
             } else {

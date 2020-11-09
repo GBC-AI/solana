@@ -144,3 +144,74 @@ MAX_SCHEDULES = 10 # usize
 [solana-bpf-loader-program]
 # Default program heap size, allocators are expected to enforce this
 DEFAULT_HEAP_SIZE = 32_768 # usize = 32kb
+
+
+[solana-program]
+# The default tick rate that the cluster attempts to achieve.  Note that the actual tick
+# rate at any given time should be expected to drift
+DEFAULT_TICKS_PER_SECOND = 160 # 64
+# At 160 ticks/s, 64 ticks per slot implies that leader rotation and voting will happen
+# every 400 ms. A fast voting cadence ensures faster finality and convergence
+DEFAULT_TICKS_PER_SLOT = 64 # u64
+# GCP n1-standard hardware and also a xeon e5-2520 v4 are about this rate of hashes/s
+DEFAULT_HASHES_PER_SECOND = 2_000_000 # u64
+# 1 Dev Epoch = 400 ms * 8192 ~= 55 minutes
+DEFAULT_DEV_SLOTS_PER_EPOCH = 8192 # u64
+
+DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE = 10_000 # u64
+
+# leader schedule is governed by this
+NUM_CONSECUTIVE_LEADER_SLOTS = 4 # u64
+# The time window of recent block hash values that the bank will track the signatures
+# of over. Once the bank discards a block hash, it will reject any transactions that use
+# that `recent_blockhash` in a transaction. Lowering this value reduces memory consumption,
+# but requires clients to update its `recent_blockhash` more frequently. Raising the value
+# lengthens the time a client must wait to be certain a missing transaction will
+# not be processed by the network.
+MAX_HASH_AGE_IN_SECONDS = 120 # usize
+# This is maximum time consumed in forwarding a transaction from one node to next, before
+# it can be processed in the target node
+MAX_TRANSACTION_FORWARDING_DELAY_GPU = 2 # usize
+# More delay is expected if CUDA is not enabled (as signature verification takes longer)
+MAX_TRANSACTION_FORWARDING_DELAY = 6 # usize
+
+# The maximum number of slots before an epoch starts to calculate the leader schedule.
+#  Default is an entire epoch, i.e. leader schedule for epoch X is calculated at
+#  the beginning of epoch X - 1.
+MAX_LEADER_SCHEDULE_EPOCH_OFFSET = 3 # u64
+MINIMUM_SLOTS_PER_EPOCH = 32 # u64
+
+# default rental rate in lamports/byte-year, based on:
+#  10^9 lamports per SOL
+#  $1 per SOL
+#  $0.01 per megabyte day
+#  $3.65 per megabyte year
+DEFAULT_LAMPORTS_PER_BYTE_YEAR = 3480 # u64 = 1_000_000_000 / 100 * 365 / (1024 * 1024)
+# default amount of time (in years) the balance has to include rent for
+DEFAULT_EXEMPTION_THRESHOLD = 2.0 # f64
+# default percentage of rent to burn (Valid values are 0 to 100)
+DEFAULT_BURN_PERCENT = 50 # u8
+# account storage overhead for calculation of base rent
+ACCOUNT_STORAGE_OVERHEAD = 128 # u64
+
+# about 2.5 minutes to get your vote in
+SLOT_MAX_ENTRIES = 512 # usize
+# it should never take as many as 512 epochs to warm up or cool down
+STAKE_HISTORY_MAX_ENTRIES = 512 # usize
+# 1 million slots is about 5 days
+SLOT_HISTORY_MAX_ENTRIES = 1048576 # u64 = 1024 * 1024
+RECENT_BLOCKHASHES_MAX_ENTRIES = 150 # usize
+
+# Network inflation
+DEFAULT_INITIAL = 0.08 # f64
+DEFAULT_TERMINAL = 0.015 # f64
+DEFAULT_TAPER = 0.15 # f64
+DEFAULT_FOUNDATION = 0.05 # f64
+DEFAULT_FOUNDATION_TERM = 7.0 # f64
+
+
+
+
+[solana-sdk]
+PBKDF2_ROUNDS = 2048 # usize
+PBKDF2_BYTES = 64 # usize

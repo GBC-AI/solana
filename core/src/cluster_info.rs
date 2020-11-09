@@ -818,7 +818,7 @@ impl ClusterInfo {
         let max_slot: Slot = update.iter().max().cloned().unwrap_or(0);
         let total_slots = max_slot as isize - min_slot as isize;
         // WARN if CRDS is not storing at least a full epoch worth of slots
-        if DEFAULT_SLOTS_PER_EPOCH as isize > total_slots
+        if *DEFAULT_SLOTS_PER_EPOCH as isize > total_slots
             && crds_value::MAX_EPOCH_SLOTS as usize <= current_slots.len()
         {
             inc_new_counter_warn!("cluster_info-epoch_slots-filled", 1);
@@ -1715,7 +1715,7 @@ impl ClusterInfo {
                 let bank = bank_forks.read().unwrap().working_bank();
                 let epoch = bank.epoch();
                 let epoch_schedule = bank.epoch_schedule();
-                epoch_schedule.get_slots_in_epoch(epoch) * DEFAULT_MS_PER_SLOT
+                epoch_schedule.get_slots_in_epoch(epoch) * *DEFAULT_MS_PER_SLOT
             } else {
                 inc_new_counter_info!("cluster_info-purge-no_working_bank", 1);
                 GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
@@ -2373,7 +2373,7 @@ impl ClusterInfo {
                 let bank = bank_forks.read().unwrap().working_bank();
                 let epoch = bank.epoch();
                 let epoch_schedule = bank.epoch_schedule();
-                epoch_time_ms = epoch_schedule.get_slots_in_epoch(epoch) * DEFAULT_MS_PER_SLOT;
+                epoch_time_ms = epoch_schedule.get_slots_in_epoch(epoch) * *DEFAULT_MS_PER_SLOT;
                 staking_utils::staked_nodes(&bank)
             }
             None => {

@@ -2881,7 +2881,7 @@ pub mod test {
 
     #[test]
     fn test_adjust_lockouts_after_replay_all_rooted_with_too_old() {
-        use solana_sdk::slot_history::MAX_ENTRIES;
+        use solana_sdk::slot_history::CFG as SLOT_HISTORY_CFG;
 
         let mut tower = Tower::new_for_tests(10, 0.9);
         tower.record_vote(0, Hash::default());
@@ -2892,13 +2892,13 @@ pub mod test {
         slot_history.add(0);
         slot_history.add(1);
         slot_history.add(2);
-        slot_history.add(MAX_ENTRIES);
+        slot_history.add(SLOT_HISTORY_CFG.SLOT_HISTORY_MAX_ENTRIES);
 
         tower = tower
-            .adjust_lockouts_after_replay(MAX_ENTRIES, &slot_history)
+            .adjust_lockouts_after_replay(SLOT_HISTORY_CFG.SLOT_HISTORY_MAX_ENTRIES, &slot_history)
             .unwrap();
         assert_eq!(tower.voted_slots(), vec![] as Vec<Slot>);
-        assert_eq!(tower.root(), MAX_ENTRIES);
+        assert_eq!(tower.root(), SLOT_HISTORY_CFG.SLOT_HISTORY_MAX_ENTRIES);
     }
 
     #[test]
@@ -3007,16 +3007,17 @@ pub mod test {
 
     #[test]
     fn test_adjust_lockouts_after_replay_too_old_tower() {
-        use solana_sdk::slot_history::MAX_ENTRIES;
+        use solana_sdk::slot_history::CFG as SLOT_HISTORY_CFG;
 
         let mut tower = Tower::new_for_tests(10, 0.9);
         tower.record_vote(0, Hash::default());
 
         let mut slot_history = SlotHistory::default();
         slot_history.add(0);
-        slot_history.add(MAX_ENTRIES);
+        slot_history.add(SLOT_HISTORY_CFG.SLOT_HISTORY_MAX_ENTRIES);
 
-        let result = tower.adjust_lockouts_after_replay(MAX_ENTRIES, &slot_history);
+        let result = tower
+            .adjust_lockouts_after_replay(SLOT_HISTORY_CFG.SLOT_HISTORY_MAX_ENTRIES, &slot_history);
         assert_eq!(
             format!("{}", result.unwrap_err()),
             "The tower is too old: newest slot in tower (0) << oldest slot in available history (1)"
@@ -3062,22 +3063,23 @@ pub mod test {
 
     #[test]
     fn test_adjust_lockouts_after_replay_out_of_order() {
-        use solana_sdk::slot_history::MAX_ENTRIES;
+        use solana_sdk::slot_history::CFG as SLOT_HISTORY_CFG;
 
         let mut tower = Tower::new_for_tests(10, 0.9);
         tower
             .lockouts
             .votes
-            .push_back(Lockout::new(MAX_ENTRIES - 1));
+            .push_back(Lockout::new(SLOT_HISTORY_CFG.SLOT_HISTORY_MAX_ENTRIES - 1));
         tower.lockouts.votes.push_back(Lockout::new(0));
         tower.lockouts.votes.push_back(Lockout::new(1));
         let vote = Vote::new(vec![1], Hash::default());
         tower.last_vote = vote;
 
         let mut slot_history = SlotHistory::default();
-        slot_history.add(MAX_ENTRIES);
+        slot_history.add(SLOT_HISTORY_CFG.SLOT_HISTORY_MAX_ENTRIES);
 
-        let result = tower.adjust_lockouts_after_replay(MAX_ENTRIES, &slot_history);
+        let result = tower
+            .adjust_lockouts_after_replay(SLOT_HISTORY_CFG.SLOT_HISTORY_MAX_ENTRIES, &slot_history);
         assert_eq!(
             format!("{}", result.unwrap_err()),
             "The tower is fatally inconsistent with blockstore: not too old once after got too old?"

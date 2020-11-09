@@ -22,20 +22,22 @@ pub struct Inflation {
     __unused: f64,
 }
 
-const DEFAULT_INITIAL: f64 = 0.08;
-const DEFAULT_TERMINAL: f64 = 0.015;
-const DEFAULT_TAPER: f64 = 0.15;
-const DEFAULT_FOUNDATION: f64 = 0.05;
-const DEFAULT_FOUNDATION_TERM: f64 = 7.0;
+toml_config::package_config! {
+    DEFAULT_INITIAL: f64,
+    DEFAULT_TERMINAL: f64,
+    DEFAULT_TAPER: f64,
+    DEFAULT_FOUNDATION: f64,
+    DEFAULT_FOUNDATION_TERM: f64,
+}
 
 impl Default for Inflation {
     fn default() -> Self {
         Self {
-            initial: DEFAULT_INITIAL,
-            terminal: DEFAULT_TERMINAL,
-            taper: DEFAULT_TAPER,
-            foundation: DEFAULT_FOUNDATION,
-            foundation_term: DEFAULT_FOUNDATION_TERM,
+            initial: CFG.DEFAULT_INITIAL,
+            terminal: CFG.DEFAULT_TERMINAL,
+            taper: CFG.DEFAULT_TAPER,
+            foundation: CFG.DEFAULT_FOUNDATION,
+            foundation_term: CFG.DEFAULT_FOUNDATION_TERM,
             __unused: 0.0,
         }
     }
@@ -107,7 +109,7 @@ mod tests {
 
         let mut last = inflation.total(0.0);
 
-        for year in &[0.1, 0.5, 1.0, DEFAULT_FOUNDATION_TERM, 100.0] {
+        for year in &[0.1, 0.5, 1.0, CFG.DEFAULT_FOUNDATION_TERM, 100.0] {
             let total = inflation.total(*year);
             assert_eq!(
                 total,
@@ -124,7 +126,7 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn test_inflation_fixed() {
         let inflation = Inflation::new_fixed(0.001);
-        for year in &[0.1, 0.5, 1.0, DEFAULT_FOUNDATION_TERM, 100.0] {
+        for year in &[0.1, 0.5, 1.0, CFG.DEFAULT_FOUNDATION_TERM, 100.0] {
             assert_eq!(inflation.total(*year), 0.001);
         }
     }

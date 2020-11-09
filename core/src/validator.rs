@@ -49,7 +49,7 @@ use solana_runtime::{
 };
 use solana_sdk::{
     clock::Slot,
-    epoch_schedule::MAX_LEADER_SCHEDULE_EPOCH_OFFSET,
+    epoch_schedule::CFG as EPOCH_CFG,
     genesis_config::GenesisConfig,
     hash::Hash,
     pubkey::Pubkey,
@@ -796,7 +796,7 @@ fn new_banks_from_ledger(
     let leader_schedule_slot_offset = genesis_config.epoch_schedule.leader_schedule_slot_offset;
     let slots_per_epoch = genesis_config.epoch_schedule.slots_per_epoch;
     let leader_epoch_offset = (leader_schedule_slot_offset + slots_per_epoch - 1) / slots_per_epoch;
-    assert!(leader_epoch_offset <= MAX_LEADER_SCHEDULE_EPOCH_OFFSET);
+    assert!(leader_epoch_offset <= EPOCH_CFG.MAX_LEADER_SCHEDULE_EPOCH_OFFSET);
 
     let genesis_hash = genesis_config.hash();
     info!("genesis hash: {}", genesis_hash);

@@ -19,14 +19,14 @@ impl Sysvar for SlotHashes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{clock::Slot, hash::Hash, slot_hashes::MAX_ENTRIES};
+    use crate::{clock::Slot, hash::Hash, slot_hashes::CFG as SLOT_HASHES_CFG};
 
     #[test]
     fn test_size_of() {
         assert_eq!(
             SlotHashes::size_of(),
             bincode::serialized_size(
-                &(0..MAX_ENTRIES)
+                &(0..SLOT_HASHES_CFG.SLOT_MAX_ENTRIES)
                     .map(|slot| (slot as Slot, Hash::default()))
                     .collect::<SlotHashes>()
             )

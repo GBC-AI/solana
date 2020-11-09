@@ -87,7 +87,7 @@ fn test_rpc_send_tx() {
 
     let request = json_req!("confirmTransaction", [signature]);
 
-    for _ in 0..solana_sdk::clock::DEFAULT_TICKS_PER_SLOT {
+    for _ in 0..solana_sdk::clock::CFG.DEFAULT_TICKS_PER_SLOT {
         let json = post_rpc(request.clone(), &leader_data);
 
         if true == json["result"]["value"] {

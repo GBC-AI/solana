@@ -3681,8 +3681,10 @@ version = "1.5.0"
 dependencies = [
  "bincode",
  "clap",
+ "lazy_static",
  "log 0.4.8",
  "rayon",
+ "serde_derive",
  "serde_json",
  "serde_yaml",
  "serial_test",
@@ -3700,6 +3702,7 @@ dependencies = [
  "solana-runtime",
  "solana-sdk 1.5.0",
  "solana-version",
+ "toml-config",
 ]
 
 [[package]]
@@ -4299,8 +4302,10 @@ dependencies = [
  "fs_extra",
  "gag",
  "itertools 0.9.0",
+ "lazy_static",
  "log 0.4.8",
  "rand 0.7.3",
+ "serde_derive",
  "serial_test",
  "serial_test_derive",
  "solana-client",
@@ -4318,6 +4323,7 @@ dependencies = [
  "solana-vest-program",
  "solana-vote-program",
  "tempfile",
+ "toml-config",
 ]
 
 [[package]]
@@ -4519,6 +4525,7 @@ dependencies = [
  "solana-logger 1.5.0",
  "solana-sdk-macro 1.5.0",
  "thiserror",
+ "toml-config",
 ]
 
 [[package]]
@@ -4716,6 +4723,7 @@ dependencies = [
  "solana-sdk-macro 1.5.0",
  "thiserror",
  "tiny-bip39",
+ "toml-config",
 ]
 
 [[package]]

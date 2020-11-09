@@ -106,7 +106,7 @@ fn execute_batch(
     let (tx_results, balances, inner_instructions, transaction_logs) =
         batch.bank().load_execute_and_commit_transactions(
             batch,
-            MAX_PROCESSING_AGE,
+            *MAX_PROCESSING_AGE,
             transaction_status_sender.is_some(),
             transaction_status_sender.is_some(),
             transaction_status_sender.is_some(),
@@ -2902,7 +2902,7 @@ pub mod tests {
             _log_messages,
         ) = batch.bank().load_execute_and_commit_transactions(
             &batch,
-            MAX_PROCESSING_AGE,
+            *MAX_PROCESSING_AGE,
             false,
             false,
             false,

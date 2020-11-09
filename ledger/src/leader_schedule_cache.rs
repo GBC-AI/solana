@@ -270,10 +270,10 @@ mod tests {
         staking_utils::tests::setup_vote_and_stake_accounts,
     };
     use solana_runtime::bank::Bank;
-    use solana_sdk::clock::NUM_CONSECUTIVE_LEADER_SLOTS;
+    use solana_sdk::clock::CFG as CLOCK_CFG;
     use solana_sdk::epoch_schedule::{
-        EpochSchedule, DEFAULT_LEADER_SCHEDULE_SLOT_OFFSET, DEFAULT_SLOTS_PER_EPOCH,
-        MINIMUM_SLOTS_PER_EPOCH,
+        EpochSchedule, CFG as EPOCH_CFG, DEFAULT_LEADER_SCHEDULE_SLOT_OFFSET,
+        DEFAULT_SLOTS_PER_EPOCH,
     };
     use solana_sdk::signature::{Keypair, Signer};
     use std::{sync::mpsc::channel, sync::Arc, thread::Builder};
@@ -341,7 +341,7 @@ mod tests {
     }
 
     fn run_thread_race() {
-        let slots_per_epoch = MINIMUM_SLOTS_PER_EPOCH as u64;
+        let slots_per_epoch = EPOCH_CFG.MINIMUM_SLOTS_PER_EPOCH as u64;
         let epoch_schedule = EpochSchedule::custom(slots_per_epoch, slots_per_epoch / 2, true);
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(2);
         let bank = Arc::new(Bank::new(&genesis_config));
@@ -389,8 +389,8 @@ mod tests {
         )
         .genesis_config;
         genesis_config.epoch_schedule = EpochSchedule::custom(
-            DEFAULT_SLOTS_PER_EPOCH,
-            DEFAULT_LEADER_SCHEDULE_SLOT_OFFSET,
+            *DEFAULT_SLOTS_PER_EPOCH,
+            *DEFAULT_LEADER_SCHEDULE_SLOT_OFFSET,
             false,
         );
 
@@ -574,7 +574,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(res.0, expected_slot);
-        assert!(res.1 >= expected_slot + NUM_CONSECUTIVE_LEADER_SLOTS - 1);
+        assert!(res.1 >= expected_slot + CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS - 1);
 
         let res = cache
             .next_leader_slot(
@@ -582,12 +582,15 @@ mod tests {
                 0,
                 &bank,
                 None,
-                NUM_CONSECUTIVE_LEADER_SLOTS - 1,
+                CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS - 1,
             )
             .unwrap();
 
         assert_eq!(res.0, expected_slot);
-        assert_eq!(res.1, expected_slot + NUM_CONSECUTIVE_LEADER_SLOTS - 2);
+        assert_eq!(
+            res.1,
+            expected_slot + CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS - 2
+        );
     }
 
     #[test]

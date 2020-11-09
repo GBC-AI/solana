@@ -282,7 +282,7 @@ impl fmt::Display for CliEpochInfo {
 
 fn slot_to_human_time(slot: Slot) -> String {
     humantime::format_duration(Duration::from_secs(
-        slot * clock::DEFAULT_TICKS_PER_SLOT / clock::DEFAULT_TICKS_PER_SECOND,
+        slot * clock::CFG.DEFAULT_TICKS_PER_SLOT / clock::CFG.DEFAULT_TICKS_PER_SECOND,
     ))
     .to_string()
 }

@@ -7,7 +7,7 @@ use solana_measure::thread_mem_usage;
 use solana_metrics::{inc_new_counter_debug, inc_new_counter_info};
 use solana_perf::packet::PacketsRecycler;
 use solana_perf::recycler::Recycler;
-use solana_sdk::clock::DEFAULT_TICKS_PER_SLOT;
+use solana_sdk::clock::CFG as CLOCK_CFG;
 use solana_streamer::streamer::{self, PacketReceiver, PacketSender};
 use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
@@ -72,7 +72,7 @@ impl FetchStage {
             BANKING_STAGE_CFG
                 .FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET
                 .saturating_add(1)
-                .saturating_mul(DEFAULT_TICKS_PER_SLOT),
+                .saturating_mul(CLOCK_CFG.DEFAULT_TICKS_PER_SLOT),
         ) {
             inc_new_counter_debug!("fetch_stage-honor_forwards", len);
             for packets in batch {

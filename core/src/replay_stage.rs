@@ -34,7 +34,7 @@ use solana_runtime::{
     commitment::BlockCommitmentCache, vote_sender_types::ReplayVoteSender,
 };
 use solana_sdk::{
-    clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
+    clock::{Slot, CFG as CLOCK_CFG},
     genesis_config::ClusterType,
     hash::Hash,
     pubkey::Pubkey,
@@ -840,7 +840,7 @@ impl ReplayStage {
 
     fn should_retransmit(poh_slot: Slot, last_retransmit_slot: &mut Slot) -> bool {
         if poh_slot < *last_retransmit_slot
-            || poh_slot >= *last_retransmit_slot + NUM_CONSECUTIVE_LEADER_SLOTS
+            || poh_slot >= *last_retransmit_slot + CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS
         {
             *last_retransmit_slot = poh_slot;
             true
@@ -1995,7 +1995,6 @@ pub(crate) mod tests {
         genesis_utils::{self, GenesisConfigInfo, ValidatorVoteKeypairs},
     };
     use solana_sdk::{
-        clock::NUM_CONSECUTIVE_LEADER_SLOTS,
         genesis_config,
         hash::{hash, Hash},
         instruction::InstructionError,
@@ -2140,12 +2139,12 @@ pub(crate) mod tests {
 
         // Insert shreds for slot NUM_CONSECUTIVE_LEADER_SLOTS,
         // chaining to slot 1
-        let (shreds, _) = make_slot_entries(NUM_CONSECUTIVE_LEADER_SLOTS, 1, 8);
+        let (shreds, _) = make_slot_entries(CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS, 1, 8);
         blockstore.insert_shreds(shreds, None, false).unwrap();
         assert!(bank_forks
             .read()
             .unwrap()
-            .get(NUM_CONSECUTIVE_LEADER_SLOTS)
+            .get(CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS)
             .is_none());
         ReplayStage::generate_new_bank_forks(
             &blockstore,
@@ -2158,17 +2157,17 @@ pub(crate) mod tests {
         assert!(bank_forks
             .read()
             .unwrap()
-            .get(NUM_CONSECUTIVE_LEADER_SLOTS)
+            .get(CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS)
             .is_some());
 
         // Insert shreds for slot 2 * NUM_CONSECUTIVE_LEADER_SLOTS,
         // chaining to slot 1
-        let (shreds, _) = make_slot_entries(2 * NUM_CONSECUTIVE_LEADER_SLOTS, 1, 8);
+        let (shreds, _) = make_slot_entries(2 * CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS, 1, 8);
         blockstore.insert_shreds(shreds, None, false).unwrap();
         assert!(bank_forks
             .read()
             .unwrap()
-            .get(2 * NUM_CONSECUTIVE_LEADER_SLOTS)
+            .get(2 * CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS)
             .is_none());
         ReplayStage::generate_new_bank_forks(
             &blockstore,
@@ -2181,12 +2180,12 @@ pub(crate) mod tests {
         assert!(bank_forks
             .read()
             .unwrap()
-            .get(NUM_CONSECUTIVE_LEADER_SLOTS)
+            .get(CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS)
             .is_some());
         assert!(bank_forks
             .read()
             .unwrap()
-            .get(2 * NUM_CONSECUTIVE_LEADER_SLOTS)
+            .get(2 * CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS)
             .is_some());
 
         // // There are 20 equally staked accounts, of which 3 have built
@@ -2194,8 +2193,8 @@ pub(crate) mod tests {
         // we should see 3 validators in bank 1's propagated_validator set.
         let expected_leader_slots = vec![
             1,
-            NUM_CONSECUTIVE_LEADER_SLOTS,
-            2 * NUM_CONSECUTIVE_LEADER_SLOTS,
+            CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS,
+            2 * CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS,
         ];
         for slot in expected_leader_slots {
             let leader = leader_schedule_cache.slot_leader_at(slot, None).unwrap();
@@ -3061,7 +3060,7 @@ pub(crate) mod tests {
         ));
         assert_eq!(last_retransmit_slot, 4);
 
-        for poh_slot in 4..4 + NUM_CONSECUTIVE_LEADER_SLOTS {
+        for poh_slot in 4..4 + CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS {
             assert!(!ReplayStage::should_retransmit(
                 poh_slot,
                 &mut last_retransmit_slot
@@ -3069,7 +3068,7 @@ pub(crate) mod tests {
             assert_eq!(last_retransmit_slot, 4);
         }
 
-        let poh_slot = 4 + NUM_CONSECUTIVE_LEADER_SLOTS;
+        let poh_slot = 4 + CLOCK_CFG.NUM_CONSECUTIVE_LEADER_SLOTS;
         last_retransmit_slot = 4;
         assert!(ReplayStage::should_retransmit(
             poh_slot,

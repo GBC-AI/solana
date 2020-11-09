@@ -8,7 +8,7 @@ use solana_measure::measure::Measure;
 use solana_metrics::{self, datapoint_info};
 use solana_sdk::{
     client::Client,
-    clock::{DEFAULT_TICKS_PER_SECOND, DEFAULT_TICKS_PER_SLOT, MAX_PROCESSING_AGE},
+    clock::{CFG as CLOCK_CFG, MAX_PROCESSING_AGE},
     commitment_config::CommitmentConfig,
     fee_calculator::FeeCalculator,
     hash::Hash,
@@ -31,9 +31,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-// The point at which transactions become "too old", in seconds.
-const MAX_TX_QUEUE_AGE: u64 =
-    MAX_PROCESSING_AGE as u64 * DEFAULT_TICKS_PER_SLOT / DEFAULT_TICKS_PER_SECOND;
+toml_config::derived_values! {
+    // The point at which transactions become "too old", in seconds.
+    MAX_TX_QUEUE_AGE: u64 =
+        *MAX_PROCESSING_AGE as u64 * CLOCK_CFG.DEFAULT_TICKS_PER_SLOT / CLOCK_CFG.DEFAULT_TICKS_PER_SECOND;
+}
 
 pub const MAX_SPENDS_PER_TX: u64 = 4;
 
@@ -464,7 +466,7 @@ fn do_tx_transfers<T: Client>(
                 let now = timestamp();
                 // Transactions that are too old will be rejected by the cluster Don't bother
                 // sending them.
-                if now > tx.1 && now - tx.1 > 1000 * MAX_TX_QUEUE_AGE {
+                if now > tx.1 && now - tx.1 > 1000 * *MAX_TX_QUEUE_AGE {
                     old_transactions = true;
                     continue;
                 }

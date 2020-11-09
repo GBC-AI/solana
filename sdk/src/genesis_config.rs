@@ -4,7 +4,7 @@
 
 use crate::{
     account::Account,
-    clock::{UnixTimestamp, DEFAULT_TICKS_PER_SLOT},
+    clock::{UnixTimestamp, CFG as CLOCK_CFG},
     epoch_schedule::EpochSchedule,
     fee_calculator::FeeRateGovernor,
     hash::{hash, Hash},
@@ -116,7 +116,7 @@ impl Default for GenesisConfig {
             accounts: BTreeMap::default(),
             native_instruction_processors: Vec::default(),
             rewards_pools: BTreeMap::default(),
-            ticks_per_slot: DEFAULT_TICKS_PER_SLOT,
+            ticks_per_slot: CLOCK_CFG.DEFAULT_TICKS_PER_SLOT,
             unused: UNUSED_DEFAULT,
             poh_config: PohConfig::default(),
             inflation: Inflation::default(),
