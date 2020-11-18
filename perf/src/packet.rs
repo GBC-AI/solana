@@ -6,13 +6,14 @@ pub use solana_sdk::packet::{Meta, Packet, PACKET_DATA_SIZE};
 use std::net::SocketAddr;
 
 toml_config::package_config! {
-    NUM_RCVMMSGS: usize,
     NUM_PACKETS: usize,
     PACKETS_PER_BATCH: usize,
 }
 toml_config::derived_values! {
     PACKETS_BATCH_SIZE: usize = CFG.PACKETS_PER_BATCH * PACKET_DATA_SIZE;
 }
+
+pub const NUM_RCVMMSGS: usize = 128;
 
 #[derive(Debug, Clone)]
 pub struct Packets {
@@ -22,7 +23,7 @@ pub struct Packets {
 //auto derive doesn't support large arrays
 impl Default for Packets {
     fn default() -> Packets {
-        let packets = PinnedVec::with_capacity(CFG.NUM_RCVMMSGS);
+        let packets = PinnedVec::with_capacity(NUM_RCVMMSGS);
         Packets { packets }
     }
 }

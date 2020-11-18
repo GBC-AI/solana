@@ -1,7 +1,7 @@
 //! The `recvmmsg` module provides recvmmsg() API implementation
 
 use crate::packet::Packet;
-pub use solana_perf::packet::CFG as PACKET_CFG;
+pub use solana_perf::packet::{CFG as PACKET_CFG, NUM_RCVMMSGS};
 use std::cmp;
 use std::io;
 use std::net::UdpSocket;
@@ -9,7 +9,7 @@ use std::net::UdpSocket;
 #[cfg(not(target_os = "linux"))]
 pub fn recv_mmsg(socket: &UdpSocket, packets: &mut [Packet]) -> io::Result<(usize, usize)> {
     let mut i = 0;
-    let count = cmp::min(PACKET_CFG.NUM_RCVMMSGS, packets.len());
+    let count = cmp::min(NUM_RCVMMSGS, packets.len());
     let mut total_size = 0;
     for p in packets.iter_mut().take(count) {
         p.meta.size = 0;
@@ -43,9 +43,9 @@ pub fn recv_mmsg(sock: &UdpSocket, packets: &mut [Packet]) -> io::Result<(usize,
     use std::mem;
     use std::os::unix::io::AsRawFd;
 
-    let mut hdrs: [mmsghdr; PACKET_CFG.NUM_RCVMMSGS] = unsafe { mem::zeroed() };
-    let mut iovs: [iovec; PACKET_CFG.NUM_RCVMMSGS] = unsafe { mem::zeroed() };
-    let mut addr: [sockaddr_in; PACKET_CFG.NUM_RCVMMSGS] = unsafe { mem::zeroed() };
+    let mut hdrs: [mmsghdr; NUM_RCVMMSGS] = unsafe { mem::zeroed() };
+    let mut iovs: [iovec; NUM_RCVMMSGS] = unsafe { mem::zeroed() };
+    let mut addr: [sockaddr_in; NUM_RCVMMSGS] = unsafe { mem::zeroed() };
     let addrlen = mem::size_of_val(&addr) as socklen_t;
 
     let sock_fd = sock.as_raw_fd();

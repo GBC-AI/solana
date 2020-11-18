@@ -93,7 +93,6 @@ MAX_UNCONFIRMED_SLOTS = 5 # usize
 [solana-perf]
 NUM_PACKETS = 8192 # usize = 1024 * 8
 PACKETS_PER_BATCH = 256 # usize
-NUM_RCVMMSGS = 128 # usize
 
 
 [solana-runtime]

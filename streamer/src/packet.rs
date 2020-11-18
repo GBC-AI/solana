@@ -2,7 +2,7 @@
 use crate::recvmmsg::recv_mmsg;
 pub use solana_perf::packet::{
     limited_deserialize, to_packets, to_packets_chunked, Packets, PacketsRecycler,
-    CFG as PACKET_CFG, PACKETS_BATCH_SIZE,
+    CFG as PACKET_CFG, NUM_RCVMMSGS, PACKETS_BATCH_SIZE,
 };
 
 use solana_metrics::inc_new_counter_debug;
@@ -22,7 +22,7 @@ pub fn recv_from(obj: &mut Packets, socket: &UdpSocket, max_wait_ms: usize) -> R
     let start = Instant::now();
     loop {
         obj.packets.resize(
-            std::cmp::min(i + PACKET_CFG.NUM_RCVMMSGS, PACKET_CFG.PACKETS_PER_BATCH),
+            std::cmp::min(i + NUM_RCVMMSGS, PACKET_CFG.PACKETS_PER_BATCH),
             Packet::default(),
         );
         match recv_mmsg(socket, &mut obj.packets[i..]) {
