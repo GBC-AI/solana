@@ -29,7 +29,7 @@ serial_test = "0.4.0"
 serial_test_derive = "0.4.0"
 solana-local-cluster = { path = "../local-cluster", version = "1.5.0" }
 solana-core = { path = "../core", version = "1.5.0" }
-tempfile = "3.1.0"
+tempfile = "3.2.0"
 
 [[bin]]
 name = "solana-stake-monitor"
