@@ -78,9 +78,9 @@ checksum = "cff77d8686867eceff3105329d4698d96c2391c176d5d03adc90c7389162b5b8"
 
 [[package]]
 name = "ascii"
-version = "0.7.1"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ae7d751998c189c1d4468cf0a39bb2eae052a9c58d50ebb3b9591ee3813ad50"
+checksum = "eab1c04a571841102f5345a8fc0f6bb3d31c315dec879b5c6e42e40ce7ffa34e"
 
 [[package]]
 name = "assert_cmd"
@@ -549,12 +549,15 @@ dependencies = [
 
 [[package]]
 name = "combine"
-version = "2.5.2"
+version = "3.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1645a65a99c7c8d345761f4b75a6ffe5be3b3b27a93ee731fccc5050ba6be97c"
+checksum = "da3da6baa321ec19e1cc41d31bf599f00c783d0517095cdaf0332e3fe8d20680"
 dependencies = [
  "ascii",
  "byteorder",
+ "either",
+ "memchr 2.3.3",
+ "unreachable",
 ]
 
 [[package]]
@@ -1322,9 +1325,9 @@ dependencies = [
 
 [[package]]
 name = "goblin"
-version = "0.2.3"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d20fd25aa456527ce4f544271ae4fea65d2eda4a6561ea56f39fb3ee4f7e3884"
+checksum = "0b1800b95efee8ad4ef04517d4d69f8e209e763b1668f1179aeeedd0e454da55"
 dependencies = [
  "log 0.4.8",
  "plain",
@@ -5099,9 +5102,9 @@ dependencies = [
 
 [[package]]
 name = "solana_rbpf"
-version = "0.1.32"
+version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a95dbe2b00920ac4e1524b7442cf5319f01e8fa5742930ac60148882fd7738b"
+checksum = "fc1dced9892c2b0273318ef4d8486112ea7c7a7b8eb563a20e7858ad921b4719"
 dependencies = [
  "byteorder",
  "combine",
@@ -5110,6 +5113,7 @@ dependencies = [
  "libc",
  "log 0.4.8",
  "rand 0.7.3",
+ "rustc-demangle",
  "scroll",
  "thiserror",
  "time 0.1.43",
@@ -6237,6 +6241,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b57c6eace16c00eccb98a28e85db3370eab0685bdd5e13831d59e2bcb49a1d8a"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "unreachable"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "382810877fe448991dfc7f0dd6e3ae5d58088fd0ea5e35189655f84e6814fa56"
+dependencies = [
+ "void",
 ]
 
 [[package]]
