@@ -1,14 +1,19 @@
-use clap::{crate_description, crate_name, value_t, App, Arg};
-use rayon::prelude::*;
-use solana_measure::measure::Measure;
-use solana_runtime::{
-    accounts::{create_test_accounts, update_accounts, Accounts},
-    accounts_index::Ancestors,
+#![allow(clippy::integer_arithmetic)]
+#[macro_use]
+extern crate log;
+use {
+    clap::{crate_description, crate_name, value_t, App, Arg},
+    rayon::prelude::*,
+    solana_measure::measure::Measure,
+    solana_runtime::{
+        accounts::{create_test_accounts, update_accounts_bench, Accounts},
+        accounts_db::AccountShrinkThreshold,
+        accounts_index::AccountSecondaryIndexes,
+        ancestors::Ancestors,
+    },
+    solana_sdk::{genesis_config::ClusterType, pubkey::Pubkey},
+    std::{env, fs, path::PathBuf},
 };
-use solana_sdk::{genesis_config::ClusterType, pubkey::Pubkey};
-use std::env;
-use std::fs;
-use std::path::PathBuf;
 
 fn main() {
     solana_logger::setup();
@@ -53,10 +58,17 @@ fn main() {
 
     let path = PathBuf::from(env::var("FARF_DIR").unwrap_or_else(|_| "farf".to_owned()))
         .join("accounts-bench");
+    println!("cleaning file system: {:?}", path);
     if fs::remove_dir_all(path.clone()).is_err() {
         println!("Warning: Couldn't remove {:?}", path);
     }
-    let accounts = Accounts::new(vec![path], &ClusterType::Testnet);
+    let accounts = Accounts::new_with_config_for_benches(
+        vec![path],
+        &ClusterType::Testnet,
+        AccountSecondaryIndexes::default(),
+        false,
+        AccountShrinkThreshold::default(),
+    );
     println!("Creating {} accounts", num_accounts);
     let mut create_time = Measure::start("create accounts");
     let pubkeys: Vec<_> = (0..num_slots)
@@ -80,28 +92,62 @@ fn main() {
         num_slots,
         create_time
     );
-    let mut ancestors: Ancestors = vec![(0, 0)].into_iter().collect();
+    let mut ancestors = Vec::with_capacity(num_slots);
+    ancestors.push(0);
     for i in 1..num_slots {
-        ancestors.insert(i as u64, i - 1);
+        ancestors.push(i as u64);
         accounts.add_root(i as u64);
     }
+    let ancestors = Ancestors::from(ancestors);
+    let mut elapsed = vec![0; iterations];
+    let mut elapsed_store = vec![0; iterations];
     for x in 0..iterations {
         if clean {
             let mut time = Measure::start("clean");
-            accounts.accounts_db.clean_accounts(None);
+            accounts.accounts_db.clean_accounts(None, false, None);
             time.stop();
             println!("{}", time);
             for slot in 0..num_slots {
-                update_accounts(&accounts, &pubkeys, ((x + 1) * num_slots + slot) as u64);
+                update_accounts_bench(&accounts, &pubkeys, ((x + 1) * num_slots + slot) as u64);
                 accounts.add_root((x * num_slots + slot) as u64);
             }
         } else {
             let mut pubkeys: Vec<Pubkey> = vec![];
             let mut time = Measure::start("hash");
-            let hash = accounts.accounts_db.update_accounts_hash(0, &ancestors).0;
+            let results = accounts.accounts_db.update_accounts_hash(0, &ancestors);
             time.stop();
-            println!("hash: {} {}", hash, time);
+            let mut time_store = Measure::start("hash using store");
+            let results_store = accounts.accounts_db.update_accounts_hash_with_index_option(
+                false,
+                false,
+                solana_sdk::clock::Slot::default(),
+                &ancestors,
+                None,
+                false,
+                None,
+                false,
+            );
+            time_store.stop();
+            if results != results_store {
+                error!("results different: \n{:?}\n{:?}", results, results_store);
+            }
+            println!(
+                "hash,{},{},{},{}%",
+                results.0,
+                time,
+                time_store,
+                (time_store.as_us() as f64 / time.as_us() as f64 * 100.0f64) as u32
+            );
             create_test_accounts(&accounts, &mut pubkeys, 1, 0);
+            elapsed[x] = time.as_us();
+            elapsed_store[x] = time_store.as_us();
         }
+    }
+
+    for x in elapsed {
+        info!("update_accounts_hash(us),{}", x);
+    }
+    for x in elapsed_store {
+        info!("calculate_accounts_hash_without_index(us),{}", x);
     }
 }

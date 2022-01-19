@@ -3,36 +3,38 @@
 //! messages to the network directly. The binary encoding of its messages are
 //! unstable and may change in future releases.
 
-use crate::{rpc_client::RpcClient, rpc_response::Response};
-use bincode::{serialize_into, serialized_size};
-use log::*;
-use solana_sdk::{
-    account::Account,
-    client::{AsyncClient, Client, SyncClient},
-    clock::{Slot, MAX_PROCESSING_AGE},
-    commitment_config::CommitmentConfig,
-    epoch_info::EpochInfo,
-    fee_calculator::{FeeCalculator, FeeRateGovernor},
-    hash::Hash,
-    instruction::Instruction,
-    message::Message,
-    packet::PACKET_DATA_SIZE,
-    pubkey::Pubkey,
-    signature::{Keypair, Signature, Signer},
-    signers::Signers,
-    system_instruction,
-    timing::duration_as_ms,
-    transaction::{self, Transaction},
-    transport::Result as TransportResult,
-};
-use std::{
-    io,
-    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        RwLock,
+use {
+    crate::{rpc_client::RpcClient, rpc_config::RpcProgramAccountsConfig, rpc_response::Response},
+    bincode::{serialize_into, serialized_size},
+    log::*,
+    solana_sdk::{
+        account::Account,
+        client::{AsyncClient, Client, SyncClient},
+        clock::{Slot, MAX_PROCESSING_AGE},
+        commitment_config::CommitmentConfig,
+        epoch_info::EpochInfo,
+        fee_calculator::{FeeCalculator, FeeRateGovernor},
+        hash::Hash,
+        instruction::Instruction,
+        message::Message,
+        packet::PACKET_DATA_SIZE,
+        pubkey::Pubkey,
+        signature::{Keypair, Signature, Signer},
+        signers::Signers,
+        system_instruction,
+        timing::duration_as_ms,
+        transaction::{self, Transaction},
+        transport::Result as TransportResult,
     },
-    time::{Duration, Instant},
+    std::{
+        io,
+        net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            RwLock,
+        },
+        time::{Duration, Instant},
+    },
 };
 
 struct ClientOptimizer {
@@ -167,8 +169,8 @@ impl ThinClient {
         let rpc_clients: Vec<_> = rpc_addrs.into_iter().map(RpcClient::new_socket).collect();
         let optimizer = ClientOptimizer::new(rpc_clients.len());
         Self {
-            tpu_addrs,
             transactions_socket,
+            tpu_addrs,
             rpc_clients,
             optimizer,
         }
@@ -216,7 +218,7 @@ impl ThinClient {
             let mut buf = vec![0; serialized_size(&transaction).unwrap() as usize];
             let mut wr = std::io::Cursor::new(&mut buf[..]);
             let mut num_confirmed = 0;
-            let mut wait_time = *MAX_PROCESSING_AGE;
+            let mut wait_time = MAX_PROCESSING_AGE;
             serialize_into(&mut wr, &transaction)
                 .expect("serialize Transaction in pub fn transfer_signed");
             // resend the same transaction until the transaction has no chance of succeeding
@@ -239,12 +241,12 @@ impl ThinClient {
                     // all pending confirmations. Resending the transaction could result into
                     // extra transaction fees
                     wait_time = wait_time.max(
-                        *MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
+                        MAX_PROCESSING_AGE * pending_confirmations.saturating_sub(num_confirmed),
                     );
                 }
             }
             info!("{} tries failed transfer to {}", x, self.tpu_addr());
-            let (blockhash, _fee_calculator) = self.get_recent_blockhash()?;
+            let blockhash = self.get_latest_blockhash()?;
             transaction.sign(keypairs, blockhash);
         }
         Err(io::Error::new(
@@ -276,6 +278,16 @@ impl ThinClient {
         )
     }
 
+    pub fn get_program_accounts_with_config(
+        &self,
+        pubkey: &Pubkey,
+        config: RpcProgramAccountsConfig,
+    ) -> TransportResult<Vec<(Pubkey, Account)>> {
+        self.rpc_client()
+            .get_program_accounts_with_config(pubkey, config)
+            .map_err(|e| e.into())
+    }
+
     pub fn wait_for_balance_with_commitment(
         &self,
         pubkey: &Pubkey,
@@ -297,10 +309,6 @@ impl ThinClient {
         self.rpc_client()
             .poll_for_signature_with_commitment(signature, commitment_config)
             .map_err(|e| e.into())
-    }
-
-    pub fn validator_exit(&self) -> TransportResult<bool> {
-        self.rpc_client().validator_exit().map_err(|e| e.into())
     }
 
     pub fn get_num_blocks_since_signature_confirmation(
@@ -325,7 +333,7 @@ impl SyncClient for ThinClient {
         keypairs: &T,
         message: Message,
     ) -> TransportResult<Signature> {
-        let (blockhash, _fee_calculator) = self.get_recent_blockhash()?;
+        let blockhash = self.get_latest_blockhash()?;
         let mut transaction = Transaction::new(keypairs, message, blockhash);
         let signature = self.send_and_confirm_transaction(keypairs, &mut transaction, 5, 0)?;
         Ok(signature)
@@ -389,7 +397,14 @@ impl SyncClient for ThinClient {
             .map(|r| r.value)
     }
 
+    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> TransportResult<u64> {
+        self.rpc_client()
+            .get_minimum_balance_for_rent_exemption(data_len)
+            .map_err(|e| e.into())
+    }
+
     fn get_recent_blockhash(&self) -> TransportResult<(Hash, FeeCalculator)> {
+        #[allow(deprecated)]
         let (blockhash, fee_calculator, _last_valid_slot) =
             self.get_recent_blockhash_with_commitment(CommitmentConfig::default())?;
         Ok((blockhash, fee_calculator))
@@ -401,6 +416,7 @@ impl SyncClient for ThinClient {
     ) -> TransportResult<(Hash, FeeCalculator, Slot)> {
         let index = self.optimizer.experiment();
         let now = Instant::now();
+        #[allow(deprecated)]
         let recent_blockhash =
             self.rpc_clients[index].get_recent_blockhash_with_commitment(commitment_config);
         match recent_blockhash {
@@ -419,12 +435,14 @@ impl SyncClient for ThinClient {
         &self,
         blockhash: &Hash,
     ) -> TransportResult<Option<FeeCalculator>> {
+        #[allow(deprecated)]
         self.rpc_client()
             .get_fee_calculator_for_blockhash(blockhash)
             .map_err(|e| e.into())
     }
 
     fn get_fee_rate_governor(&self) -> TransportResult<FeeRateGovernor> {
+        #[allow(deprecated)]
         self.rpc_client()
             .get_fee_rate_governor()
             .map_err(|e| e.into())
@@ -437,7 +455,7 @@ impl SyncClient for ThinClient {
     ) -> TransportResult<Option<transaction::Result<()>>> {
         let status = self
             .rpc_client()
-            .get_signature_status(&signature)
+            .get_signature_status(signature)
             .map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::Other,
@@ -454,7 +472,7 @@ impl SyncClient for ThinClient {
     ) -> TransportResult<Option<transaction::Result<()>>> {
         let status = self
             .rpc_client()
-            .get_signature_status_with_commitment(&signature, commitment_config)
+            .get_signature_status_with_commitment(signature, commitment_config)
             .map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::Other,
@@ -542,8 +560,49 @@ impl SyncClient for ThinClient {
     }
 
     fn get_new_blockhash(&self, blockhash: &Hash) -> TransportResult<(Hash, FeeCalculator)> {
+        #[allow(deprecated)]
         self.rpc_client()
             .get_new_blockhash(blockhash)
+            .map_err(|e| e.into())
+    }
+
+    fn get_latest_blockhash(&self) -> TransportResult<Hash> {
+        let (blockhash, _) =
+            self.get_latest_blockhash_with_commitment(CommitmentConfig::default())?;
+        Ok(blockhash)
+    }
+
+    fn get_latest_blockhash_with_commitment(
+        &self,
+        commitment_config: CommitmentConfig,
+    ) -> TransportResult<(Hash, u64)> {
+        let index = self.optimizer.experiment();
+        let now = Instant::now();
+        match self.rpc_clients[index].get_latest_blockhash_with_commitment(commitment_config) {
+            Ok((blockhash, last_valid_block_height)) => {
+                self.optimizer.report(index, duration_as_ms(&now.elapsed()));
+                Ok((blockhash, last_valid_block_height))
+            }
+            Err(e) => {
+                self.optimizer.report(index, std::u64::MAX);
+                Err(e.into())
+            }
+        }
+    }
+
+    fn is_blockhash_valid(
+        &self,
+        blockhash: &Hash,
+        commitment_config: CommitmentConfig,
+    ) -> TransportResult<bool> {
+        self.rpc_client()
+            .is_blockhash_valid(blockhash, commitment_config)
+            .map_err(|e| e.into())
+    }
+
+    fn get_fee_for_message(&self, message: &Message) -> TransportResult<u64> {
+        self.rpc_client()
+            .get_fee_for_message(message)
             .map_err(|e| e.into())
     }
 }
@@ -608,8 +667,7 @@ pub fn create_client_with_timeout(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rayon::prelude::*;
+    use {super::*, rayon::prelude::*};
 
     #[test]
     fn test_client_optimizer() {

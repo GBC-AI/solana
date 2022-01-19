@@ -1,41 +1,40 @@
-use crate::cli::Config;
-use log::*;
-use rayon::prelude::*;
-use solana_client::perf_utils::{sample_txs, SampleStats};
-use solana_core::gen_keys::GenKeys;
-use solana_faucet::faucet::request_airdrop_transaction;
-use solana_measure::measure::Measure;
-use solana_metrics::{self, datapoint_info};
-use solana_sdk::{
-    client::Client,
-    clock::{CFG as CLOCK_CFG, MAX_PROCESSING_AGE},
-    commitment_config::CommitmentConfig,
-    fee_calculator::FeeCalculator,
-    hash::Hash,
-    message::Message,
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    system_instruction, system_transaction,
-    timing::{duration_as_ms, duration_as_s, duration_as_us, timestamp},
-    transaction::Transaction,
-};
-use std::{
-    collections::{HashSet, VecDeque},
-    net::SocketAddr,
-    process::exit,
-    sync::{
-        atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering},
-        Arc, Mutex, RwLock,
+use {
+    crate::cli::Config,
+    log::*,
+    rayon::prelude::*,
+    solana_client::perf_utils::{sample_txs, SampleStats},
+    solana_core::gen_keys::GenKeys,
+    solana_faucet::faucet::request_airdrop_transaction,
+    solana_measure::measure::Measure,
+    solana_metrics::{self, datapoint_info},
+    solana_sdk::{
+        client::Client,
+        clock::{DEFAULT_MS_PER_SLOT, DEFAULT_S_PER_SLOT, MAX_PROCESSING_AGE},
+        commitment_config::CommitmentConfig,
+        hash::Hash,
+        instruction::{AccountMeta, Instruction},
+        message::Message,
+        pubkey::Pubkey,
+        signature::{Keypair, Signer},
+        system_instruction, system_transaction,
+        timing::{duration_as_ms, duration_as_s, duration_as_us, timestamp},
+        transaction::Transaction,
     },
-    thread::{sleep, Builder, JoinHandle},
-    time::{Duration, Instant},
+    std::{
+        collections::{HashSet, VecDeque},
+        net::SocketAddr,
+        process::exit,
+        sync::{
+            atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering},
+            Arc, Mutex, RwLock,
+        },
+        thread::{sleep, Builder, JoinHandle},
+        time::{Duration, Instant},
+    },
 };
 
-toml_config::derived_values! {
-    // The point at which transactions become "too old", in seconds.
-    MAX_TX_QUEUE_AGE: u64 =
-        *MAX_PROCESSING_AGE as u64 * CLOCK_CFG.DEFAULT_TICKS_PER_SLOT / CLOCK_CFG.DEFAULT_TICKS_PER_SECOND;
-}
+// The point at which transactions become "too old", in seconds.
+const MAX_TX_QUEUE_AGE: u64 = (MAX_PROCESSING_AGE as f64 * DEFAULT_S_PER_SLOT) as u64;
 
 pub const MAX_SPENDS_PER_TX: u64 = 4;
 
@@ -48,14 +47,12 @@ pub type Result<T> = std::result::Result<T, BenchTpsError>;
 
 pub type SharedTransactions = Arc<RwLock<VecDeque<Vec<(Transaction, u64)>>>>;
 
-fn get_recent_blockhash<T: Client>(client: &T) -> (Hash, FeeCalculator) {
+fn get_latest_blockhash<T: Client>(client: &T) -> Hash {
     loop {
-        match client.get_recent_blockhash_with_commitment(CommitmentConfig::recent()) {
-            Ok((blockhash, fee_calculator, _last_valid_slot)) => {
-                return (blockhash, fee_calculator)
-            }
+        match client.get_latest_blockhash_with_commitment(CommitmentConfig::processed()) {
+            Ok((blockhash, _)) => return blockhash,
             Err(err) => {
-                info!("Couldn't get recent blockhash: {:?}", err);
+                info!("Couldn't get last blockhash: {:?}", err);
                 sleep(Duration::from_secs(1));
             }
         };
@@ -242,19 +239,19 @@ where
 
     let shared_txs: SharedTransactions = Arc::new(RwLock::new(VecDeque::new()));
 
-    let recent_blockhash = Arc::new(RwLock::new(get_recent_blockhash(client.as_ref()).0));
+    let blockhash = Arc::new(RwLock::new(get_latest_blockhash(client.as_ref())));
     let shared_tx_active_thread_count = Arc::new(AtomicIsize::new(0));
     let total_tx_sent_count = Arc::new(AtomicUsize::new(0));
 
     let blockhash_thread = {
         let exit_signal = exit_signal.clone();
-        let recent_blockhash = recent_blockhash.clone();
+        let blockhash = blockhash.clone();
         let client = client.clone();
         let id = id.pubkey();
         Builder::new()
             .name("solana-blockhash-poller".to_string())
             .spawn(move || {
-                poll_blockhash(&exit_signal, &recent_blockhash, &client, &id);
+                poll_blockhash(&exit_signal, &blockhash, &client, &id);
             })
             .unwrap()
     };
@@ -274,7 +271,7 @@ where
     let start = Instant::now();
 
     generate_chunked_transfers(
-        recent_blockhash,
+        blockhash,
         &shared_txs,
         shared_tx_active_thread_count,
         source_keypair_chunks,
@@ -394,6 +391,22 @@ fn generate_txs(
     }
 }
 
+fn get_new_latest_blockhash<T: Client>(client: &Arc<T>, blockhash: &Hash) -> Option<Hash> {
+    let start = Instant::now();
+    while start.elapsed().as_secs() < 5 {
+        if let Ok(new_blockhash) = client.get_latest_blockhash() {
+            if new_blockhash != *blockhash {
+                return Some(new_blockhash);
+            }
+        }
+        debug!("Got same blockhash ({:?}), will retry...", blockhash);
+
+        // Retry ~twice during a slot
+        sleep(Duration::from_millis(DEFAULT_MS_PER_SLOT / 2));
+    }
+    None
+}
+
 fn poll_blockhash<T: Client>(
     exit_signal: &Arc<AtomicBool>,
     blockhash: &Arc<RwLock<Hash>>,
@@ -405,7 +418,7 @@ fn poll_blockhash<T: Client>(
     loop {
         let blockhash_updated = {
             let old_blockhash = *blockhash.read().unwrap();
-            if let Ok((new_blockhash, _fee)) = client.get_new_blockhash(&old_blockhash) {
+            if let Some(new_blockhash) = get_new_latest_blockhash(client, &old_blockhash) {
                 *blockhash.write().unwrap() = new_blockhash;
                 blockhash_last_updated = Instant::now();
                 true
@@ -466,7 +479,7 @@ fn do_tx_transfers<T: Client>(
                 let now = timestamp();
                 // Transactions that are too old will be rejected by the cluster Don't bother
                 // sending them.
-                if now > tx.1 && now - tx.1 > 1000 * *MAX_TX_QUEUE_AGE {
+                if now > tx.1 && now - tx.1 > 1000 * MAX_TX_QUEUE_AGE {
                     old_transactions = true;
                     continue;
                 }
@@ -499,7 +512,7 @@ fn do_tx_transfers<T: Client>(
 
 fn verify_funding_transfer<T: Client>(client: &Arc<T>, tx: &Transaction, amount: u64) -> bool {
     for a in &tx.message().account_keys[1..] {
-        match client.get_balance_with_commitment(a, CommitmentConfig::recent()) {
+        match client.get_balance_with_commitment(a, CommitmentConfig::processed()) {
             Ok(balance) => return balance >= amount,
             Err(err) => error!("failed to get balance {:?}", err),
         }
@@ -543,16 +556,16 @@ impl<'a> FundingTransactions<'a> for Vec<(&'a Keypair, Transaction)> {
                 self.len(),
             );
 
-            let (blockhash, _fee_calculator) = get_recent_blockhash(client.as_ref());
+            let blockhash = get_latest_blockhash(client.as_ref());
 
             // re-sign retained to_fund_txes with updated blockhash
             self.sign(blockhash);
-            self.send(&client);
+            self.send(client);
 
             // Sleep a few slots to allow transactions to process
             sleep(Duration::from_secs(1));
 
-            self.verify(&client, to_lamports);
+            self.verify(client, to_lamports);
 
             // retry anything that seems to have dropped through cracks
             //  again since these txs are all or nothing, they're fine to
@@ -567,7 +580,7 @@ impl<'a> FundingTransactions<'a> for Vec<(&'a Keypair, Transaction)> {
         let to_fund_txs: Vec<(&Keypair, Transaction)> = to_fund
             .par_iter()
             .map(|(k, t)| {
-                let instructions = system_instruction::transfer_many(&k.pubkey(), &t);
+                let instructions = system_instruction::transfer_many(&k.pubkey(), t);
                 let message = Message::new(&instructions, Some(&k.pubkey()));
                 (*k, Transaction::new_unsigned(message))
             })
@@ -620,7 +633,7 @@ impl<'a> FundingTransactions<'a> for Vec<(&'a Keypair, Transaction)> {
                         return None;
                     }
 
-                    let verified = if verify_funding_transfer(&client, &tx, to_lamports) {
+                    let verified = if verify_funding_transfer(&client, tx, to_lamports) {
                         verified_txs.fetch_add(1, Ordering::Relaxed);
                         Some(k.pubkey())
                     } else {
@@ -735,8 +748,8 @@ pub fn airdrop_lamports<T: Client>(
             id.pubkey(),
         );
 
-        let (blockhash, _fee_calculator) = get_recent_blockhash(client);
-        match request_airdrop_transaction(&faucet_addr, &id.pubkey(), airdrop_amount, blockhash) {
+        let blockhash = get_latest_blockhash(client);
+        match request_airdrop_transaction(faucet_addr, &id.pubkey(), airdrop_amount, blockhash) {
             Ok(transaction) => {
                 let mut tries = 0;
                 loop {
@@ -764,7 +777,7 @@ pub fn airdrop_lamports<T: Client>(
         };
 
         let current_balance = client
-            .get_balance_with_commitment(&id.pubkey(), CommitmentConfig::recent())
+            .get_balance_with_commitment(&id.pubkey(), CommitmentConfig::processed())
             .unwrap_or_else(|e| {
                 info!("airdrop error {}", e);
                 starting_balance
@@ -893,8 +906,16 @@ pub fn generate_and_fund_keypairs<T: 'static + Client + Send + Sync>(
     //   pay for the transaction fees in a new run.
     let enough_lamports = 8 * lamports_per_account / 10;
     if first_keypair_balance < enough_lamports || last_keypair_balance < enough_lamports {
-        let fee_rate_governor = client.get_fee_rate_governor().unwrap();
-        let max_fee = fee_rate_governor.max_lamports_per_signature;
+        let single_sig_message = Message::new_with_blockhash(
+            &[Instruction::new_with_bytes(
+                Pubkey::new_unique(),
+                &[],
+                vec![AccountMeta::new(Pubkey::new_unique(), true)],
+            )],
+            None,
+            &client.get_latest_blockhash().unwrap(),
+        );
+        let max_fee = client.get_fee_for_message(&single_sig_message).unwrap();
         let extra_fees = extra * max_fee;
         let total_keypairs = keypairs.len() as u64 + 1; // Add one for funding keypair
         let total = lamports_per_account * total_keypairs + extra_fees;
@@ -927,23 +948,27 @@ pub fn generate_and_fund_keypairs<T: 'static + Client + Send + Sync>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use solana_runtime::bank::Bank;
-    use solana_runtime::bank_client::BankClient;
-    use solana_sdk::client::SyncClient;
-    use solana_sdk::fee_calculator::FeeRateGovernor;
-    use solana_sdk::genesis_config::create_genesis_config;
+    use {
+        super::*,
+        solana_runtime::{bank::Bank, bank_client::BankClient},
+        solana_sdk::{
+            client::SyncClient, fee_calculator::FeeRateGovernor,
+            genesis_config::create_genesis_config,
+        },
+    };
 
     #[test]
     fn test_bench_tps_bank_client() {
         let (genesis_config, id) = create_genesis_config(10_000);
-        let bank = Bank::new(&genesis_config);
+        let bank = Bank::new_for_tests(&genesis_config);
         let client = Arc::new(BankClient::new(bank));
 
-        let mut config = Config::default();
-        config.id = id;
-        config.tx_count = 10;
-        config.duration = Duration::from_secs(5);
+        let config = Config {
+            id,
+            tx_count: 10,
+            duration: Duration::from_secs(5),
+            ..Config::default()
+        };
 
         let keypair_count = config.tx_count * config.keypair_multiplier;
         let keypairs =
@@ -956,7 +981,7 @@ mod tests {
     #[test]
     fn test_bench_tps_fund_keys() {
         let (genesis_config, id) = create_genesis_config(10_000);
-        let bank = Bank::new(&genesis_config);
+        let bank = Bank::new_for_tests(&genesis_config);
         let client = Arc::new(BankClient::new(bank));
         let keypair_count = 20;
         let lamports = 20;
@@ -967,7 +992,7 @@ mod tests {
         for kp in &keypairs {
             assert_eq!(
                 client
-                    .get_balance_with_commitment(&kp.pubkey(), CommitmentConfig::recent())
+                    .get_balance_with_commitment(&kp.pubkey(), CommitmentConfig::processed())
                     .unwrap(),
                 lamports
             );
@@ -979,7 +1004,7 @@ mod tests {
         let (mut genesis_config, id) = create_genesis_config(10_000);
         let fee_rate_governor = FeeRateGovernor::new(11, 0);
         genesis_config.fee_rate_governor = fee_rate_governor;
-        let bank = Bank::new(&genesis_config);
+        let bank = Bank::new_for_tests(&genesis_config);
         let client = Arc::new(BankClient::new(bank));
         let keypair_count = 20;
         let lamports = 20;

@@ -23,19 +23,25 @@ jobs:
         depth: false
       script:
         - .travis/export-github-repo.sh web3.js/ solana-web3.js
-        - .travis/export-github-repo.sh explorer/ explorer
 
     - &release-artifacts
       if: type IN (api, cron) OR tag IS present
       name: "macOS release artifacts"
       os: osx
+      osx_image: xcode12
       language: rust
       rust:
         - stable
       install:
         - source ci/rust-version.sh
+        - PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
+        - readlink -f .
+        - brew install gnu-tar
+        - PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH"
+        - tar --version
       script:
         - source ci/env.sh
+        - rustup set profile default
         - ci/publish-tarball.sh
       deploy:
         - provider: s3
@@ -58,6 +64,12 @@ jobs:
     - <<: *release-artifacts
       name: "Windows release artifacts"
       os: windows
+      install:
+        - choco install openssl
+        - export OPENSSL_DIR="C:\Program Files\OpenSSL-Win64"
+        - source ci/rust-version.sh
+        - PATH="/usr/local/opt/coreutils/libexec/gnubin:$PATH"
+        - readlink -f .
     #  Linux release artifacts are still built by ci/buildkite-secondary.yml
     #- <<: *release-artifacts
     #  name: "Linux release artifacts"
@@ -65,56 +77,13 @@ jobs:
     #  before_install:
     #    - sudo apt-get install libssl-dev libudev-dev
 
-    # explorer pull request
-    - name: "explorer"
-      if: type = pull_request AND branch = master
-
-      language: node_js
-      node_js:
-        - "node"
-
-      cache:
-        directories:
-          - ~/.npm
-
-      before_install:
-        - .travis/affects.sh explorer/ .travis || travis_terminate 0
-        - cd explorer
-
-      script:
-        - npm run build
-        - npm run format
-
-    # web3.js pull request
-    - name: "web3.js"
-      if: type = pull_request AND branch = master
-
-      language: node_js
-      node_js:
-        - "lts/*"
-
-      services:
-        - docker
-
-      cache:
-        directories:
-          - ~/.npm
-
-      before_install:
-        - .travis/affects.sh web3.js/ .travis || travis_terminate 0
-        - cd web3.js/
-        - source .travis/before_install.sh
-
-      script:
-        - ../.travis/commitlint.sh
-        - source .travis/script.sh
-
     # docs pull request
+   
     - name: "docs"
       if: type IN (push, pull_request) OR tag IS present
       language: node_js
       node_js:
-        - "node"
+        - "lts/*"
 
       services:
         - docker

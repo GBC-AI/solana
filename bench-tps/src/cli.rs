@@ -1,11 +1,13 @@
-use clap::{crate_description, crate_name, App, Arg, ArgMatches};
-use solana_faucet::faucet::FAUCET_PORT;
-use solana_sdk::fee_calculator::FeeRateGovernor;
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair},
+use {
+    clap::{crate_description, crate_name, App, Arg, ArgMatches},
+    solana_faucet::faucet::FAUCET_PORT,
+    solana_sdk::{
+        fee_calculator::FeeRateGovernor,
+        pubkey::Pubkey,
+        signature::{read_keypair_file, Keypair},
+    },
+    std::{net::SocketAddr, process::exit, time::Duration},
 };
-use std::{net::SocketAddr, process::exit, time::Duration};
 
 const NUM_LAMPORTS_PER_ACCOUNT_DEFAULT: u64 = solana_sdk::native_token::LAMPORTS_PER_SOL;
 
@@ -196,7 +198,7 @@ pub fn build_args<'a, 'b>(version: &'b str) -> App<'a, 'b> {
 /// * `matches` - command line arguments parsed by clap
 /// # Panics
 /// Panics if there is trouble parsing any of the arguments
-pub fn extract_args<'a>(matches: &ArgMatches<'a>) -> Config {
+pub fn extract_args(matches: &ArgMatches) -> Config {
     let mut args = Config::default();
 
     if let Some(addr) = matches.value_of("entrypoint") {

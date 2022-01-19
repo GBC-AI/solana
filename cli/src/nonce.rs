@@ -1,35 +1,43 @@
-use crate::{
-    checks::{check_account_for_fee_with_commitment, check_unique_pubkeys},
-    cli::{
-        log_instruction_custom_error, CliCommand, CliCommandInfo, CliConfig, CliError,
-        ProcessResult,
+use {
+    crate::{
+        checks::{check_account_for_fee_with_commitment, check_unique_pubkeys},
+        cli::{
+            log_instruction_custom_error, log_instruction_custom_error_ex, CliCommand,
+            CliCommandInfo, CliConfig, CliError, ProcessResult,
+        },
+        feature::get_feature_is_active,
+        memo::WithMemo,
+        spend_utils::{resolve_spend_tx_and_check_account_balance, SpendAmount},
     },
-    spend_utils::{resolve_spend_tx_and_check_account_balance, SpendAmount},
-};
-use clap::{App, Arg, ArgMatches, SubCommand};
-use solana_clap_utils::{
-    input_parsers::*,
-    input_validators::*,
-    keypair::{DefaultSigner, SignerIndex},
-    nonce::*,
-};
-use solana_cli_output::CliNonceAccount;
-use solana_client::{nonce_utils::*, rpc_client::RpcClient};
-use solana_remote_wallet::remote_wallet::RemoteWalletManager;
-use solana_sdk::{
-    account::Account,
-    hash::Hash,
-    message::Message,
-    nonce::{self, State},
-    pubkey::Pubkey,
-    system_instruction::{
-        advance_nonce_account, authorize_nonce_account, create_nonce_account,
-        create_nonce_account_with_seed, withdraw_nonce_account, NonceError, SystemError,
+    clap::{App, Arg, ArgMatches, SubCommand},
+    solana_clap_utils::{
+        input_parsers::*,
+        input_validators::*,
+        keypair::{DefaultSigner, SignerIndex},
+        memo::{memo_arg, MEMO_ARG},
+        nonce::*,
     },
-    system_program,
-    transaction::Transaction,
+    solana_cli_output::CliNonceAccount,
+    solana_client::{nonce_utils::*, rpc_client::RpcClient},
+    solana_remote_wallet::remote_wallet::RemoteWalletManager,
+    solana_sdk::{
+        account::Account,
+        feature_set::merge_nonce_error_into_system_error,
+        hash::Hash,
+        instruction::InstructionError,
+        message::Message,
+        nonce::{self, State},
+        pubkey::Pubkey,
+        system_instruction::{
+            advance_nonce_account, authorize_nonce_account, create_nonce_account,
+            create_nonce_account_with_seed, instruction_to_nonce_error, withdraw_nonce_account,
+            NonceError, SystemError,
+        },
+        system_program,
+        transaction::{Transaction, TransactionError},
+    },
+    std::sync::Arc,
 };
-use std::sync::Arc;
 
 pub trait NonceSubCommands {
     fn nonce_subcommands(self) -> Self;
@@ -54,7 +62,8 @@ impl NonceSubCommands for App<'_, '_> {
                         .required(true),
                         "Account to be granted authority of the nonce account. "),
                 )
-                .arg(nonce_authority_arg()),
+                .arg(nonce_authority_arg())
+                .arg(memo_arg()),
         )
         .subcommand(
             SubCommand::with_name("create-nonce-account")
@@ -89,7 +98,8 @@ impl NonceSubCommands for App<'_, '_> {
                         .value_name("STRING")
                         .takes_value(true)
                         .help("Seed for address generation; if specified, the resulting account will be at a derived address of the NONCE_ACCOUNT pubkey")
-                ),
+                )
+                .arg(memo_arg()),
         )
         .subcommand(
             SubCommand::with_name("nonce")
@@ -113,7 +123,8 @@ impl NonceSubCommands for App<'_, '_> {
                         .required(true),
                         "Address of the nonce account. "),
                 )
-                .arg(nonce_authority_arg()),
+                .arg(nonce_authority_arg())
+                .arg(memo_arg()),
         )
         .subcommand(
             SubCommand::with_name("nonce-account")
@@ -159,7 +170,8 @@ impl NonceSubCommands for App<'_, '_> {
                         .validator(is_amount)
                         .help("The amount to withdraw from the nonce account, in SOL"),
                 )
-                .arg(nonce_authority_arg()),
+                .arg(nonce_authority_arg())
+                .arg(memo_arg()),
         )
     }
 }
@@ -171,6 +183,7 @@ pub fn parse_authorize_nonce_account(
 ) -> Result<CliCommandInfo, CliError> {
     let nonce_account = pubkey_of_signer(matches, "nonce_account_pubkey", wallet_manager)?.unwrap();
     let new_authority = pubkey_of_signer(matches, "new_authority", wallet_manager)?.unwrap();
+    let memo = matches.value_of(MEMO_ARG.name).map(String::from);
     let (nonce_authority, nonce_authority_pubkey) =
         signer_of(matches, NONCE_AUTHORITY_ARG.name, wallet_manager)?;
 
@@ -185,6 +198,7 @@ pub fn parse_authorize_nonce_account(
         command: CliCommand::AuthorizeNonceAccount {
             nonce_account,
             nonce_authority: signer_info.index_of(nonce_authority_pubkey).unwrap(),
+            memo,
             new_authority,
         },
         signers: signer_info.signers,
@@ -201,6 +215,7 @@ pub fn parse_nonce_create_account(
     let seed = matches.value_of("seed").map(|s| s.to_string());
     let amount = SpendAmount::new_from_matches(matches, "amount");
     let nonce_authority = pubkey_of_signer(matches, NONCE_AUTHORITY_ARG.name, wallet_manager)?;
+    let memo = matches.value_of(MEMO_ARG.name).map(String::from);
 
     let payer_provided = None;
     let signer_info = default_signer.generate_unique_signers(
@@ -214,6 +229,7 @@ pub fn parse_nonce_create_account(
             nonce_account: signer_info.index_of(nonce_account_pubkey).unwrap(),
             seed,
             nonce_authority,
+            memo,
             amount,
         },
         signers: signer_info.signers,
@@ -239,6 +255,7 @@ pub fn parse_new_nonce(
     wallet_manager: &mut Option<Arc<RemoteWalletManager>>,
 ) -> Result<CliCommandInfo, CliError> {
     let nonce_account = pubkey_of_signer(matches, "nonce_account_pubkey", wallet_manager)?.unwrap();
+    let memo = matches.value_of(MEMO_ARG.name).map(String::from);
     let (nonce_authority, nonce_authority_pubkey) =
         signer_of(matches, NONCE_AUTHORITY_ARG.name, wallet_manager)?;
 
@@ -253,6 +270,7 @@ pub fn parse_new_nonce(
         command: CliCommand::NewNonce {
             nonce_account,
             nonce_authority: signer_info.index_of(nonce_authority_pubkey).unwrap(),
+            memo,
         },
         signers: signer_info.signers,
     })
@@ -284,6 +302,7 @@ pub fn parse_withdraw_from_nonce_account(
     let destination_account_pubkey =
         pubkey_of_signer(matches, "destination_account_pubkey", wallet_manager)?.unwrap();
     let lamports = lamports_of_sol(matches, "amount").unwrap();
+    let memo = matches.value_of(MEMO_ARG.name).map(String::from);
     let (nonce_authority, nonce_authority_pubkey) =
         signer_of(matches, NONCE_AUTHORITY_ARG.name, wallet_manager)?;
 
@@ -298,6 +317,7 @@ pub fn parse_withdraw_from_nonce_account(
         command: CliCommand::WithdrawFromNonceAccount {
             nonce_account,
             nonce_authority: signer_info.index_of(nonce_authority_pubkey).unwrap(),
+            memo,
             destination_account_pubkey,
             lamports,
         },
@@ -314,9 +334,17 @@ pub fn check_nonce_account(
     match state_from_account(nonce_account)? {
         State::Initialized(ref data) => {
             if &data.blockhash != nonce_hash {
-                Err(Error::InvalidHash.into())
+                Err(Error::InvalidHash {
+                    provided: *nonce_hash,
+                    expected: data.blockhash,
+                }
+                .into())
             } else if nonce_authority != &data.authority {
-                Err(Error::InvalidAuthority.into())
+                Err(Error::InvalidAuthority {
+                    provided: *nonce_authority,
+                    expected: data.authority,
+                }
+                .into())
             } else {
                 Ok(())
             }
@@ -330,31 +358,43 @@ pub fn process_authorize_nonce_account(
     config: &CliConfig,
     nonce_account: &Pubkey,
     nonce_authority: SignerIndex,
+    memo: Option<&String>,
     new_authority: &Pubkey,
 ) -> ProcessResult {
-    let (recent_blockhash, fee_calculator, _) = rpc_client
-        .get_recent_blockhash_with_commitment(config.commitment)?
-        .value;
+    let latest_blockhash = rpc_client.get_latest_blockhash()?;
 
     let nonce_authority = config.signers[nonce_authority];
-    let ix = authorize_nonce_account(nonce_account, &nonce_authority.pubkey(), new_authority);
-    let message = Message::new(&[ix], Some(&config.signers[0].pubkey()));
+    let ixs = vec![authorize_nonce_account(
+        nonce_account,
+        &nonce_authority.pubkey(),
+        new_authority,
+    )]
+    .with_memo(memo);
+    let message = Message::new(&ixs, Some(&config.signers[0].pubkey()));
     let mut tx = Transaction::new_unsigned(message);
-    tx.try_sign(&config.signers, recent_blockhash)?;
+    tx.try_sign(&config.signers, latest_blockhash)?;
 
     check_account_for_fee_with_commitment(
         rpc_client,
         &config.signers[0].pubkey(),
-        &fee_calculator,
         &tx.message,
         config.commitment,
     )?;
-    let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-        &tx,
-        config.commitment,
-        config.send_transaction_config,
-    );
-    log_instruction_custom_error::<NonceError>(result, &config)
+    let merge_errors =
+        get_feature_is_active(rpc_client, &merge_nonce_error_into_system_error::id())?;
+    let result = rpc_client.send_and_confirm_transaction_with_spinner(&tx);
+
+    if merge_errors {
+        log_instruction_custom_error::<SystemError>(result, config)
+    } else {
+        log_instruction_custom_error_ex::<NonceError, _>(result, config, |ix_error| {
+            if let InstructionError::Custom(_) = ix_error {
+                instruction_to_nonce_error(ix_error, merge_errors)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 pub fn process_create_nonce_account(
@@ -363,6 +403,7 @@ pub fn process_create_nonce_account(
     nonce_account: SignerIndex,
     seed: Option<String>,
     nonce_authority: Option<Pubkey>,
+    memo: Option<&String>,
     amount: SpendAmount,
 ) -> ProcessResult {
     let nonce_account_pubkey = config.signers[nonce_account].pubkey();
@@ -389,6 +430,7 @@ pub fn process_create_nonce_account(
                 &nonce_authority,
                 lamports,
             )
+            .with_memo(memo)
         } else {
             create_nonce_account(
                 &config.signers[0].pubkey(),
@@ -396,27 +438,24 @@ pub fn process_create_nonce_account(
                 &nonce_authority,
                 lamports,
             )
+            .with_memo(memo)
         };
         Message::new(&ixs, Some(&config.signers[0].pubkey()))
     };
 
-    let (recent_blockhash, fee_calculator, _) = rpc_client
-        .get_recent_blockhash_with_commitment(config.commitment)?
-        .value;
+    let latest_blockhash = rpc_client.get_latest_blockhash()?;
 
     let (message, lamports) = resolve_spend_tx_and_check_account_balance(
         rpc_client,
         false,
         amount,
-        &fee_calculator,
+        &latest_blockhash,
         &config.signers[0].pubkey(),
         build_message,
         config.commitment,
     )?;
 
-    if let Ok(nonce_account) =
-        get_account_with_commitment(rpc_client, &nonce_account_address, config.commitment)
-    {
+    if let Ok(nonce_account) = get_account(rpc_client, &nonce_account_address) {
         let err_msg = if state_from_account(&nonce_account).is_ok() {
             format!("Nonce account {} already exists", nonce_account_address)
         } else {
@@ -438,13 +477,41 @@ pub fn process_create_nonce_account(
     }
 
     let mut tx = Transaction::new_unsigned(message);
-    tx.try_sign(&config.signers, recent_blockhash)?;
-    let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-        &tx,
-        config.commitment,
-        config.send_transaction_config,
-    );
-    log_instruction_custom_error::<SystemError>(result, &config)
+    tx.try_sign(&config.signers, latest_blockhash)?;
+    let merge_errors =
+        get_feature_is_active(rpc_client, &merge_nonce_error_into_system_error::id())?;
+    let result = rpc_client.send_and_confirm_transaction_with_spinner(&tx);
+
+    let err_ix_index = if let Err(err) = &result {
+        err.get_transaction_error().and_then(|tx_err| {
+            if let TransactionError::InstructionError(ix_index, _) = tx_err {
+                Some(ix_index)
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
+
+    match err_ix_index {
+        // SystemInstruction::InitializeNonceAccount failed
+        Some(1) => {
+            if merge_errors {
+                log_instruction_custom_error::<SystemError>(result, config)
+            } else {
+                log_instruction_custom_error_ex::<NonceError, _>(result, config, |ix_error| {
+                    if let InstructionError::Custom(_) = ix_error {
+                        instruction_to_nonce_error(ix_error, merge_errors)
+                    } else {
+                        None
+                    }
+                })
+            }
+        }
+        // SystemInstruction::CreateAccount{,WithSeed} failed
+        _ => log_instruction_custom_error::<SystemError>(result, config),
+    }
 }
 
 pub fn process_get_nonce(
@@ -452,6 +519,7 @@ pub fn process_get_nonce(
     config: &CliConfig,
     nonce_account_pubkey: &Pubkey,
 ) -> ProcessResult {
+    #[allow(clippy::redundant_closure)]
     match get_account_with_commitment(rpc_client, nonce_account_pubkey, config.commitment)
         .and_then(|ref a| state_from_account(a))?
     {
@@ -465,42 +533,52 @@ pub fn process_new_nonce(
     config: &CliConfig,
     nonce_account: &Pubkey,
     nonce_authority: SignerIndex,
+    memo: Option<&String>,
 ) -> ProcessResult {
     check_unique_pubkeys(
         (&config.signers[0].pubkey(), "cli keypair".to_string()),
-        (&nonce_account, "nonce_account_pubkey".to_string()),
+        (nonce_account, "nonce_account_pubkey".to_string()),
     )?;
 
-    let nonce_account_check =
-        rpc_client.get_account_with_commitment(&nonce_account, config.commitment);
-    if nonce_account_check.is_err() || nonce_account_check.unwrap().value.is_none() {
-        return Err(CliError::BadParameter(
-            "Unable to create new nonce, no nonce account found".to_string(),
-        )
+    if let Err(err) = rpc_client.get_account(nonce_account) {
+        return Err(CliError::BadParameter(format!(
+            "Unable to advance nonce account {}. error: {}",
+            nonce_account, err
+        ))
         .into());
     }
 
     let nonce_authority = config.signers[nonce_authority];
-    let ix = advance_nonce_account(&nonce_account, &nonce_authority.pubkey());
-    let (recent_blockhash, fee_calculator, _) = rpc_client
-        .get_recent_blockhash_with_commitment(config.commitment)?
-        .value;
-    let message = Message::new(&[ix], Some(&config.signers[0].pubkey()));
+    let ixs = vec![advance_nonce_account(
+        nonce_account,
+        &nonce_authority.pubkey(),
+    )]
+    .with_memo(memo);
+    let latest_blockhash = rpc_client.get_latest_blockhash()?;
+    let message = Message::new(&ixs, Some(&config.signers[0].pubkey()));
     let mut tx = Transaction::new_unsigned(message);
-    tx.try_sign(&config.signers, recent_blockhash)?;
+    tx.try_sign(&config.signers, latest_blockhash)?;
     check_account_for_fee_with_commitment(
         rpc_client,
         &config.signers[0].pubkey(),
-        &fee_calculator,
         &tx.message,
         config.commitment,
     )?;
-    let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-        &tx,
-        config.commitment,
-        config.send_transaction_config,
-    );
-    log_instruction_custom_error::<SystemError>(result, &config)
+    let merge_errors =
+        get_feature_is_active(rpc_client, &merge_nonce_error_into_system_error::id())?;
+    let result = rpc_client.send_and_confirm_transaction_with_spinner(&tx);
+
+    if merge_errors {
+        log_instruction_custom_error::<SystemError>(result, config)
+    } else {
+        log_instruction_custom_error_ex::<NonceError, _>(result, config, |ix_error| {
+            if let InstructionError::Custom(_) = ix_error {
+                instruction_to_nonce_error(ix_error, merge_errors)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 pub fn process_show_nonce_account(
@@ -519,7 +597,7 @@ pub fn process_show_nonce_account(
             use_lamports_unit,
             ..CliNonceAccount::default()
         };
-        if let Some(ref data) = data {
+        if let Some(data) = data {
             nonce_account.nonce = Some(data.blockhash.to_string());
             nonce_account.lamports_per_signature = Some(data.fee_calculator.lamports_per_signature);
             nonce_account.authority = Some(data.authority.to_string());
@@ -538,53 +616,62 @@ pub fn process_withdraw_from_nonce_account(
     config: &CliConfig,
     nonce_account: &Pubkey,
     nonce_authority: SignerIndex,
+    memo: Option<&String>,
     destination_account_pubkey: &Pubkey,
     lamports: u64,
 ) -> ProcessResult {
-    let (recent_blockhash, fee_calculator, _) = rpc_client
-        .get_recent_blockhash_with_commitment(config.commitment)?
-        .value;
+    let latest_blockhash = rpc_client.get_latest_blockhash()?;
 
     let nonce_authority = config.signers[nonce_authority];
-    let ix = withdraw_nonce_account(
+    let ixs = vec![withdraw_nonce_account(
         nonce_account,
         &nonce_authority.pubkey(),
         destination_account_pubkey,
         lamports,
-    );
-    let message = Message::new(&[ix], Some(&config.signers[0].pubkey()));
+    )]
+    .with_memo(memo);
+    let message = Message::new(&ixs, Some(&config.signers[0].pubkey()));
     let mut tx = Transaction::new_unsigned(message);
-    tx.try_sign(&config.signers, recent_blockhash)?;
+    tx.try_sign(&config.signers, latest_blockhash)?;
     check_account_for_fee_with_commitment(
         rpc_client,
         &config.signers[0].pubkey(),
-        &fee_calculator,
         &tx.message,
         config.commitment,
     )?;
-    let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-        &tx,
-        config.commitment,
-        config.send_transaction_config,
-    );
-    log_instruction_custom_error::<NonceError>(result, &config)
+    let merge_errors =
+        get_feature_is_active(rpc_client, &merge_nonce_error_into_system_error::id())?;
+    let result = rpc_client.send_and_confirm_transaction_with_spinner(&tx);
+
+    if merge_errors {
+        log_instruction_custom_error::<SystemError>(result, config)
+    } else {
+        log_instruction_custom_error_ex::<NonceError, _>(result, config, |ix_error| {
+            if let InstructionError::Custom(_) = ix_error {
+                instruction_to_nonce_error(ix_error, merge_errors)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::cli::{app, parse_command};
-    use solana_sdk::{
-        account::Account,
-        account_utils::StateMut,
-        fee_calculator::FeeCalculator,
-        hash::hash,
-        nonce::{self, state::Versions, State},
-        nonce_account,
-        signature::{read_keypair_file, write_keypair, Keypair, Signer},
-        system_program,
+    use {
+        super::*,
+        crate::{clap_app::get_clap_app, cli::parse_command},
+        solana_sdk::{
+            account::Account,
+            account_utils::StateMut,
+            hash::hash,
+            nonce::{self, state::Versions, State},
+            nonce_account,
+            signature::{read_keypair_file, write_keypair, Keypair, Signer},
+            system_program,
+        },
+        tempfile::NamedTempFile,
     };
-    use tempfile::NamedTempFile;
 
     fn make_tmp_file() -> (String, NamedTempFile) {
         let tmp_file = NamedTempFile::new().unwrap();
@@ -593,14 +680,11 @@ mod tests {
 
     #[test]
     fn test_parse_command() {
-        let test_commands = app("test", "desc", "version");
+        let test_commands = get_clap_app("test", "desc", "version");
         let default_keypair = Keypair::new();
         let (default_keypair_file, mut tmp_file) = make_tmp_file();
         write_keypair(&default_keypair, tmp_file.as_file_mut()).unwrap();
-        let default_signer = DefaultSigner {
-            path: default_keypair_file.clone(),
-            arg_name: String::new(),
-        };
+        let default_signer = DefaultSigner::new("", &default_keypair_file);
         let (keypair_file, mut tmp_file) = make_tmp_file();
         let nonce_account_keypair = Keypair::new();
         write_keypair(&nonce_account_keypair, tmp_file.as_file_mut()).unwrap();
@@ -624,6 +708,7 @@ mod tests {
                 command: CliCommand::AuthorizeNonceAccount {
                     nonce_account: nonce_account_pubkey,
                     nonce_authority: 0,
+                    memo: None,
                     new_authority: Pubkey::default(),
                 },
                 signers: vec![read_keypair_file(&default_keypair_file).unwrap().into()],
@@ -645,6 +730,7 @@ mod tests {
                 command: CliCommand::AuthorizeNonceAccount {
                     nonce_account: read_keypair_file(&keypair_file).unwrap().pubkey(),
                     nonce_authority: 1,
+                    memo: None,
                     new_authority: Pubkey::default(),
                 },
                 signers: vec![
@@ -668,6 +754,7 @@ mod tests {
                     nonce_account: 1,
                     seed: None,
                     nonce_authority: None,
+                    memo: None,
                     amount: SpendAmount::Some(50_000_000_000),
                 },
                 signers: vec![
@@ -693,6 +780,7 @@ mod tests {
                     nonce_account: 1,
                     seed: None,
                     nonce_authority: Some(nonce_authority_keypair.pubkey()),
+                    memo: None,
                     amount: SpendAmount::Some(50_000_000_000),
                 },
                 signers: vec![
@@ -728,6 +816,7 @@ mod tests {
                 command: CliCommand::NewNonce {
                     nonce_account: nonce_account.pubkey(),
                     nonce_authority: 0,
+                    memo: None,
                 },
                 signers: vec![read_keypair_file(&default_keypair_file).unwrap().into()],
             }
@@ -748,6 +837,7 @@ mod tests {
                 command: CliCommand::NewNonce {
                     nonce_account: nonce_account.pubkey(),
                     nonce_authority: 1,
+                    memo: None,
                 },
                 signers: vec![
                     read_keypair_file(&default_keypair_file).unwrap().into(),
@@ -792,6 +882,7 @@ mod tests {
                 command: CliCommand::WithdrawFromNonceAccount {
                     nonce_account: read_keypair_file(&keypair_file).unwrap().pubkey(),
                     nonce_authority: 0,
+                    memo: None,
                     destination_account_pubkey: nonce_account_pubkey,
                     lamports: 42_000_000_000
                 },
@@ -820,6 +911,7 @@ mod tests {
                 command: CliCommand::WithdrawFromNonceAccount {
                     nonce_account: read_keypair_file(&keypair_file).unwrap().pubkey(),
                     nonce_authority: 1,
+                    memo: None,
                     destination_account_pubkey: nonce_account_pubkey,
                     lamports: 42_000_000_000
                 },
@@ -835,11 +927,11 @@ mod tests {
     fn test_check_nonce_account() {
         let blockhash = Hash::default();
         let nonce_pubkey = solana_sdk::pubkey::new_rand();
-        let data = Versions::new_current(State::Initialized(nonce::state::Data {
-            authority: nonce_pubkey,
+        let data = Versions::new_current(State::Initialized(nonce::state::Data::new(
+            nonce_pubkey,
             blockhash,
-            fee_calculator: FeeCalculator::default(),
-        }));
+            0,
+        )));
         let valid = Account::new_data(1, &data, &system_program::ID);
         assert!(check_nonce_account(&valid.unwrap(), &nonce_pubkey, &blockhash).is_ok());
 
@@ -857,28 +949,41 @@ mod tests {
             assert_eq!(err, Error::InvalidAccountData,);
         }
 
-        let data = Versions::new_current(State::Initialized(nonce::state::Data {
-            authority: nonce_pubkey,
-            blockhash: hash(b"invalid"),
-            fee_calculator: FeeCalculator::default(),
-        }));
-        let invalid_hash = Account::new_data(1, &data, &system_program::ID);
+        let data = Versions::new_current(State::Initialized(nonce::state::Data::new(
+            nonce_pubkey,
+            hash(b"invalid"),
+            0,
+        )));
+        let invalid_hash = Account::new_data(1, &data, &system_program::ID).unwrap();
         if let CliError::InvalidNonce(err) =
-            check_nonce_account(&invalid_hash.unwrap(), &nonce_pubkey, &blockhash).unwrap_err()
+            check_nonce_account(&invalid_hash, &nonce_pubkey, &blockhash).unwrap_err()
         {
-            assert_eq!(err, Error::InvalidHash,);
+            assert_eq!(
+                err,
+                Error::InvalidHash {
+                    provided: blockhash,
+                    expected: hash(b"invalid"),
+                }
+            );
         }
 
-        let data = Versions::new_current(State::Initialized(nonce::state::Data {
-            authority: solana_sdk::pubkey::new_rand(),
+        let new_nonce_authority = solana_sdk::pubkey::new_rand();
+        let data = Versions::new_current(State::Initialized(nonce::state::Data::new(
+            new_nonce_authority,
             blockhash,
-            fee_calculator: FeeCalculator::default(),
-        }));
+            0,
+        )));
         let invalid_authority = Account::new_data(1, &data, &system_program::ID);
         if let CliError::InvalidNonce(err) =
             check_nonce_account(&invalid_authority.unwrap(), &nonce_pubkey, &blockhash).unwrap_err()
         {
-            assert_eq!(err, Error::InvalidAuthority,);
+            assert_eq!(
+                err,
+                Error::InvalidAuthority {
+                    provided: nonce_pubkey,
+                    expected: new_nonce_authority,
+                }
+            );
         }
 
         let data = Versions::new_current(State::Uninitialized);
@@ -914,11 +1019,7 @@ mod tests {
         let mut nonce_account = nonce_account::create_account(1).into_inner();
         assert_eq!(state_from_account(&nonce_account), Ok(State::Uninitialized));
 
-        let data = nonce::state::Data {
-            authority: Pubkey::new(&[1u8; 32]),
-            blockhash: Hash::new(&[42u8; 32]),
-            fee_calculator: FeeCalculator::new(42),
-        };
+        let data = nonce::state::Data::new(Pubkey::new(&[1u8; 32]), Hash::new(&[42u8; 32]), 42);
         nonce_account
             .set_state(&Versions::new_current(State::Initialized(data.clone())))
             .unwrap();
@@ -947,11 +1048,7 @@ mod tests {
             Err(Error::InvalidStateForOperation)
         );
 
-        let data = nonce::state::Data {
-            authority: Pubkey::new(&[1u8; 32]),
-            blockhash: Hash::new(&[42u8; 32]),
-            fee_calculator: FeeCalculator::new(42),
-        };
+        let data = nonce::state::Data::new(Pubkey::new(&[1u8; 32]), Hash::new(&[42u8; 32]), 42);
         nonce_account
             .set_state(&Versions::new_current(State::Initialized(data.clone())))
             .unwrap();

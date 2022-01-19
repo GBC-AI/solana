@@ -1,29 +1,30 @@
 //! The `metrics` module enables sending measurements to an `InfluxDB` instance
 
-use crate::{counter::CounterPoint, datapoint::DataPoint};
-use gethostname::gethostname;
-use lazy_static::lazy_static;
-use log::*;
-use solana_sdk::hash::hash;
-use std::{
-    collections::HashMap,
-    convert::Into,
-    sync::{
-        mpsc::{channel, Receiver, RecvTimeoutError, Sender},
-        Arc, Barrier, Mutex, Once, RwLock,
+use {
+    crate::{counter::CounterPoint, datapoint::DataPoint},
+    crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender},
+    gethostname::gethostname,
+    lazy_static::lazy_static,
+    log::*,
+    solana_sdk::hash::hash,
+    std::{
+        cmp,
+        collections::HashMap,
+        convert::Into,
+        env,
+        sync::{Arc, Barrier, Mutex, Once, RwLock},
+        thread,
+        time::{Duration, Instant, UNIX_EPOCH},
     },
-    thread,
-    time::{Duration, Instant},
-    {cmp, env},
 };
 
 type CounterMap = HashMap<(&'static str, u64), CounterPoint>;
 
-impl Into<DataPoint> for CounterPoint {
-    fn into(self) -> DataPoint {
-        let mut point = DataPoint::new(self.name);
-        point.timestamp = self.timestamp;
-        point.add_field_i64("count", self.count);
+impl From<CounterPoint> for DataPoint {
+    fn from(counter_point: CounterPoint) -> Self {
+        let mut point = Self::new(counter_point.name);
+        point.timestamp = counter_point.timestamp;
+        point.add_field_i64("count", counter_point.count);
         point
     }
 }
@@ -68,7 +69,7 @@ impl InfluxDbMetricsWriter {
         );
 
         let write_url = format!(
-            "{}/write?db={}&u={}&p={}&precision=ms",
+            "{}/write?db={}&u={}&p={}&precision=n",
             &config.host, &config.db, &config.username, &config.password
         );
 
@@ -97,22 +98,30 @@ impl MetricsWriter for InfluxDbMetricsWriter {
                     ));
                     first = false;
                 }
-
-                line.push_str(&format!(" {}\n", &point.timestamp));
+                let timestamp = point.timestamp.duration_since(UNIX_EPOCH);
+                let nanos = timestamp.unwrap().as_nanos();
+                line.push_str(&format!(" {}\n", nanos));
             }
 
             let client = reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(5))
-                .build()
-                .unwrap();
+                .build();
+            let client = match client {
+                Ok(client) => client,
+                Err(err) => {
+                    warn!("client instantiation failed: {}", err);
+                    return;
+                }
+            };
+
             let response = client.post(write_url.as_str()).body(line).send();
             if let Ok(resp) = response {
-                if !resp.status().is_success() {
-                    warn!(
-                        "submit response unsuccessful: {} {}",
-                        resp.status(),
-                        resp.text().unwrap()
-                    );
+                let status = resp.status();
+                if !status.is_success() {
+                    let text = resp
+                        .text()
+                        .unwrap_or_else(|_| "[text body empty]".to_string());
+                    warn!("submit response unsuccessful: {} {}", status, text,);
                 }
             } else {
                 warn!("submit error: {}", response.unwrap_err());
@@ -144,7 +153,7 @@ impl MetricsAgent {
         write_frequency: Duration,
         max_points_per_sec: usize,
     ) -> Self {
-        let (sender, receiver) = channel::<MetricsCommand>();
+        let (sender, receiver) = unbounded::<MetricsCommand>();
         thread::spawn(move || Self::run(&receiver, &writer, write_frequency, max_points_per_sec));
 
         Self { sender }
@@ -530,7 +539,7 @@ mod test {
                 CounterPoint {
                     name: "counter",
                     count: 10,
-                    timestamp: 0,
+                    timestamp: UNIX_EPOCH,
                 },
                 Level::Info,
                 0, // use the same bucket

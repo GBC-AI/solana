@@ -5,7 +5,7 @@ import { AccountBalancePair } from "@solana/web3.js";
 import { useRichList, useFetchRichList, Status } from "providers/richList";
 import { LoadingCard } from "./common/LoadingCard";
 import { ErrorCard } from "./common/ErrorCard";
-import { lamportsToSolString } from "utils";
+import { SolBalance } from "utils";
 import { useQuery } from "utils/url";
 import { useSupply } from "providers/supply";
 import { Address } from "./common/Address";
@@ -19,19 +19,15 @@ export function TopAccountsCard() {
   const [showDropdown, setDropdown] = React.useState(false);
   const filter = useQueryFilter();
 
-  // Fetch on load
-  React.useEffect(() => {
-    if (richList === Status.Idle && typeof supply === "object") fetchRichList();
-  }, [supply]); // eslint-disable-line react-hooks/exhaustive-deps
-
   if (typeof supply !== "object") return null;
 
   if (richList === Status.Disconnected) {
     return <ErrorCard text="Not connected to the cluster" />;
   }
 
-  if (richList === Status.Idle || richList === Status.Connecting)
+  if (richList === Status.Connecting) {
     return <LoadingCard />;
+  }
 
   if (typeof richList === "string") {
     return <ErrorCard text={richList} retry={fetchRichList} />;
@@ -39,25 +35,28 @@ export function TopAccountsCard() {
 
   let supplyCount: number;
   let accounts, header;
-  switch (filter) {
-    case "nonCirculating": {
-      accounts = richList.nonCirculating;
-      supplyCount = supply.nonCirculating;
-      header = "Non-Circulating";
-      break;
-    }
-    case "all": {
-      accounts = richList.total;
-      supplyCount = supply.total;
-      header = "Total";
-      break;
-    }
-    case "circulating":
-    default: {
-      accounts = richList.circulating;
-      supplyCount = supply.circulating;
-      header = "Circulating";
-      break;
+
+  if (richList !== Status.Idle) {
+    switch (filter) {
+      case "nonCirculating": {
+        accounts = richList.nonCirculating;
+        supplyCount = supply.nonCirculating;
+        header = "Non-Circulating";
+        break;
+      }
+      case "all": {
+        accounts = richList.total;
+        supplyCount = supply.total;
+        header = "Total";
+        break;
+      }
+      case "circulating":
+      default: {
+        accounts = richList.circulating;
+        supplyCount = supply.circulating;
+        header = "Circulating";
+        break;
+      }
     }
   }
 
@@ -84,23 +83,36 @@ export function TopAccountsCard() {
           </div>
         </div>
 
-        <div className="table-responsive mb-0">
-          <table className="table table-sm table-nowrap card-table">
-            <thead>
-              <tr>
-                <th className="text-muted">Rank</th>
-                <th className="text-muted">Address</th>
-                <th className="text-muted text-right">Balance (SOL)</th>
-                <th className="text-muted text-right">% of {header} Supply</th>
-              </tr>
-            </thead>
-            <tbody className="list">
-              {accounts.map((account, index) =>
-                renderAccountRow(account, index, supplyCount)
-              )}
-            </tbody>
-          </table>
-        </div>
+        {richList === Status.Idle && (
+          <div className="card-body">
+            <span
+              className="btn btn-white ms-3 d-none d-md-inline"
+              onClick={fetchRichList}
+            >
+              Load Largest Accounts
+            </span>
+          </div>
+        )}
+
+        {accounts && (
+          <div className="table-responsive mb-0">
+            <table className="table table-sm table-nowrap card-table">
+              <thead>
+                <tr>
+                  <th className="text-muted">Rank</th>
+                  <th className="text-muted">Address</th>
+                  <th className="text-muted text-end">Balance (SOL)</th>
+                  <th className="text-muted text-end">% of {header} Supply</th>
+                </tr>
+              </thead>
+              <tbody className="list">
+                {accounts.map((account, index) =>
+                  renderAccountRow(account, index, supplyCount)
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </>
   );
@@ -114,16 +126,17 @@ const renderAccountRow = (
   return (
     <tr key={index}>
       <td>
-        <span className="badge badge-soft-gray badge-pill">{index + 1}</span>
+        <span className="badge bg-gray-soft badge-pill">{index + 1}</span>
       </td>
       <td>
         <Address pubkey={account.address} link />
       </td>
-      <td className="text-right">{lamportsToSolString(account.lamports, 0)}</td>
-      <td className="text-right">{`${(
-        (100 * account.lamports) /
-        supply
-      ).toFixed(3)}%`}</td>
+      <td className="text-end">
+        <SolBalance lamports={account.lamports} maximumFractionDigits={0} />
+      </td>
+      <td className="text-end">{`${((100 * account.lamports) / supply).toFixed(
+        3
+      )}%`}</td>
     </tr>
   );
 };
@@ -187,9 +200,7 @@ const FilterDropdown = ({ filter, toggle, show }: DropdownProps) => {
       >
         {filterTitle(filter)}
       </button>
-      <div
-        className={`dropdown-menu-right dropdown-menu${show ? " show" : ""}`}
-      >
+      <div className={`dropdown-menu-end dropdown-menu${show ? " show" : ""}`}>
         {FILTERS.map((filterOption) => {
           return (
             <Link

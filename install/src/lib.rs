@@ -1,10 +1,13 @@
+#![allow(clippy::integer_arithmetic)]
 #[macro_use]
 extern crate lazy_static;
 
-use clap::{crate_description, crate_name, App, AppSettings, Arg, ArgMatches, SubCommand};
-use solana_clap_utils::{
-    input_parsers::pubkey_of,
-    input_validators::{is_pubkey, is_url},
+use {
+    clap::{crate_description, crate_name, App, AppSettings, Arg, ArgMatches, SubCommand},
+    solana_clap_utils::{
+        input_parsers::pubkey_of,
+        input_validators::{is_pubkey, is_url},
+    },
 };
 
 mod build_env;
@@ -15,7 +18,7 @@ mod stop_process;
 mod update_manifest;
 
 pub fn is_semver(semver: &str) -> Result<(), String> {
-    match semver::Version::parse(&semver) {
+    match semver::Version::parse(semver) {
         Ok(_) => Ok(()),
         Err(err) => Err(format!("{:?}", err)),
     }
@@ -57,10 +60,10 @@ pub fn explicit_release_of(
 
 fn handle_init(matches: &ArgMatches<'_>, config_file: &str) -> Result<(), String> {
     let json_rpc_url = matches.value_of("json_rpc_url").unwrap();
-    let update_manifest_pubkey = pubkey_of(&matches, "update_manifest_pubkey");
+    let update_manifest_pubkey = pubkey_of(matches, "update_manifest_pubkey");
     let data_dir = matches.value_of("data_dir").unwrap();
     let no_modify_path = matches.is_present("no_modify_path");
-    let explicit_release = explicit_release_of(&matches, "explicit_release");
+    let explicit_release = explicit_release_of(matches, "explicit_release");
 
     if update_manifest_pubkey.is_none() && explicit_release.is_none() {
         Err(format!(
@@ -95,7 +98,7 @@ pub fn main() -> Result<(), String> {
                 .global(true)
                 .help("Configuration file to use");
             match *defaults::CONFIG_FILE {
-                Some(ref config_file) => arg.default_value(&config_file),
+                Some(ref config_file) => arg.default_value(config_file),
                 None => arg.required(true),
             }
         })
@@ -112,7 +115,7 @@ pub fn main() -> Result<(), String> {
                         .required(true)
                         .help("Directory to store install data");
                     match *defaults::DATA_DIR {
-                        Some(ref data_dir) => arg.default_value(&data_dir),
+                        Some(ref data_dir) => arg.default_value(data_dir),
                         None => arg,
                     }
                 })
@@ -151,15 +154,13 @@ pub fn main() -> Result<(), String> {
         )
         .subcommand(
             SubCommand::with_name("info")
-                .about("displays information about the current installation")
+                .about("Displays information about the current installation")
                 .setting(AppSettings::DisableVersion)
                 .arg(
                     Arg::with_name("local_info_only")
                         .short("l")
                         .long("local")
-                        .help(
-                        "only display local information, don't check the cluster for new updates",
-                    ),
+                        .help("only display local information, don't check for updates"),
                 )
                 .arg(
                     Arg::with_name("eval")
@@ -169,7 +170,7 @@ pub fn main() -> Result<(), String> {
         )
         .subcommand(
             SubCommand::with_name("deploy")
-                .about("deploys a new update")
+                .about("Deploys a new update")
                 .setting(AppSettings::DisableVersion)
                 .arg({
                     let arg = Arg::with_name("from_keypair_file")
@@ -180,7 +181,7 @@ pub fn main() -> Result<(), String> {
                         .required(true)
                         .help("Keypair file of the account that funds the deployment");
                     match *defaults::USER_KEYPAIR {
-                        Some(ref config_file) => arg.default_value(&config_file),
+                        Some(ref config_file) => arg.default_value(config_file),
                         None => arg,
                     }
                 })
@@ -209,8 +210,13 @@ pub fn main() -> Result<(), String> {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("gc")
+                .about("Delete older releases from the install cache to reclaim disk space")
+                .setting(AppSettings::DisableVersion),
+        )
+        .subcommand(
             SubCommand::with_name("update")
-                .about("checks for an update, and if available downloads and applies it")
+                .about("Checks for an update, and if available downloads and applies it")
                 .setting(AppSettings::DisableVersion),
         )
         .subcommand(
@@ -236,7 +242,7 @@ pub fn main() -> Result<(), String> {
     let config_file = matches.value_of("config_file").unwrap();
 
     match matches.subcommand() {
-        ("init", Some(matches)) => handle_init(&matches, &config_file),
+        ("init", Some(matches)) => handle_init(matches, config_file),
         ("info", Some(matches)) => {
             let local_info_only = matches.is_present("local_info_only");
             let eval = matches.is_present("eval");
@@ -255,7 +261,8 @@ pub fn main() -> Result<(), String> {
                 update_manifest_keypair_file,
             )
         }
-        ("update", Some(_matches)) => command::update(config_file).map(|_| ()),
+        ("gc", Some(_matches)) => command::gc(config_file),
+        ("update", Some(_matches)) => command::update(config_file, false).map(|_| ()),
         ("run", Some(matches)) => {
             let program_name = matches.value_of("program_name").unwrap();
             let program_arguments = matches
@@ -273,7 +280,7 @@ pub fn main_init() -> Result<(), String> {
     solana_logger::setup();
 
     let matches = App::new("solana-install-init")
-        .about("initializes a new installation")
+        .about("Initializes a new installation")
         .version(solana_version::version!())
         .arg({
             let arg = Arg::with_name("config_file")
@@ -283,7 +290,7 @@ pub fn main_init() -> Result<(), String> {
                 .takes_value(true)
                 .help("Configuration file to use");
             match *defaults::CONFIG_FILE {
-                Some(ref config_file) => arg.default_value(&config_file),
+                Some(ref config_file) => arg.default_value(config_file),
                 None => arg.required(true),
             }
         })
@@ -296,7 +303,7 @@ pub fn main_init() -> Result<(), String> {
                 .required(true)
                 .help("Directory to store install data");
             match *defaults::DATA_DIR {
-                Some(ref data_dir) => arg.default_value(&data_dir),
+                Some(ref data_dir) => arg.default_value(data_dir),
                 None => arg,
             }
         })
@@ -335,5 +342,5 @@ pub fn main_init() -> Result<(), String> {
         .get_matches();
 
     let config_file = matches.value_of("config_file").unwrap();
-    handle_init(&matches, &config_file)
+    handle_init(&matches, config_file)
 }

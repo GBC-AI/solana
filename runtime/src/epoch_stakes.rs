@@ -1,8 +1,9 @@
-use crate::stakes::Stakes;
-use serde::{Deserialize, Serialize};
-use solana_sdk::{account::Account, clock::Epoch, pubkey::Pubkey};
-use solana_vote_program::vote_state::VoteState;
-use std::{collections::HashMap, sync::Arc};
+use {
+    crate::{stakes::Stakes, vote_account::VoteAccount},
+    serde::{Deserialize, Serialize},
+    solana_sdk::{clock::Epoch, pubkey::Pubkey},
+    std::{collections::HashMap, sync::Arc},
+};
 
 pub type NodeIdToVoteAccounts = HashMap<Pubkey, NodeVoteAccounts>;
 pub type EpochAuthorizedVoters = HashMap<Pubkey, Pubkey>;
@@ -23,9 +24,9 @@ pub struct EpochStakes {
 
 impl EpochStakes {
     pub fn new(stakes: &Stakes, leader_schedule_epoch: Epoch) -> Self {
-        let epoch_vote_accounts = Stakes::vote_accounts(stakes);
+        let epoch_vote_accounts = stakes.vote_accounts();
         let (total_stake, node_id_to_vote_accounts, epoch_authorized_voters) =
-            Self::parse_epoch_vote_accounts(&epoch_vote_accounts, leader_schedule_epoch);
+            Self::parse_epoch_vote_accounts(epoch_vote_accounts.as_ref(), leader_schedule_epoch);
         Self {
             stakes: Arc::new(stakes.clone()),
             total_stake,
@@ -51,14 +52,15 @@ impl EpochStakes {
     }
 
     pub fn vote_account_stake(&self, vote_account: &Pubkey) -> u64 {
-        Stakes::vote_accounts(&self.stakes)
+        self.stakes
+            .vote_accounts()
             .get(vote_account)
             .map(|(stake, _)| *stake)
             .unwrap_or(0)
     }
 
     fn parse_epoch_vote_accounts(
-        epoch_vote_accounts: &HashMap<Pubkey, (u64, Account)>,
+        epoch_vote_accounts: &HashMap<Pubkey, (u64, VoteAccount)>,
         leader_schedule_epoch: Epoch,
     ) -> (u64, NodeIdToVoteAccounts, EpochAuthorizedVoters) {
         let mut node_id_to_vote_accounts: NodeIdToVoteAccounts = HashMap::new();
@@ -69,34 +71,38 @@ impl EpochStakes {
         let epoch_authorized_voters = epoch_vote_accounts
             .iter()
             .filter_map(|(key, (stake, account))| {
-                let vote_state = VoteState::from(&account);
-                if vote_state.is_none() {
-                    datapoint_warn!(
-                        "parse_epoch_vote_accounts",
-                        (
-                            "warn",
-                            format!("Unable to get vote_state from account {}", key),
-                            String
-                        ),
-                    );
-                    return None;
-                }
-                let vote_state = vote_state.unwrap();
+                let vote_state = account.vote_state();
+                let vote_state = match vote_state.as_ref() {
+                    Err(_) => {
+                        datapoint_warn!(
+                            "parse_epoch_vote_accounts",
+                            (
+                                "warn",
+                                format!("Unable to get vote_state from account {}", key),
+                                String
+                            ),
+                        );
+                        return None;
+                    }
+                    Ok(vote_state) => vote_state,
+                };
+
                 if *stake > 0 {
-                    // Read out the authorized voters
-                    let authorized_voter = vote_state
+                    if let Some(authorized_voter) = vote_state
                         .authorized_voters()
                         .get_authorized_voter(leader_schedule_epoch)
-                        .expect("Authorized voter for current epoch must be known");
+                    {
+                        let node_vote_accounts = node_id_to_vote_accounts
+                            .entry(vote_state.node_pubkey)
+                            .or_default();
 
-                    let node_vote_accounts = node_id_to_vote_accounts
-                        .entry(vote_state.node_pubkey)
-                        .or_default();
+                        node_vote_accounts.total_stake += stake;
+                        node_vote_accounts.vote_accounts.push(*key);
 
-                    node_vote_accounts.total_stake += stake;
-                    node_vote_accounts.vote_accounts.push(*key);
-
-                    Some((*key, authorized_voter))
+                        Some((*key, authorized_voter))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
@@ -112,13 +118,14 @@ impl EpochStakes {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::*;
-    use solana_vote_program::vote_state::create_account_with_authorized;
-    use std::iter;
+    use {
+        super::*, solana_sdk::account::AccountSharedData,
+        solana_vote_program::vote_state::create_account_with_authorized, std::iter,
+    };
 
     struct VoteAccountInfo {
         vote_account: Pubkey,
-        account: Account,
+        account: AccountSharedData,
         authorized_voter: Pubkey,
     }
 
@@ -181,9 +188,12 @@ pub(crate) mod tests {
         let epoch_vote_accounts: HashMap<_, _> = vote_accounts_map
             .iter()
             .flat_map(|(_, vote_accounts)| {
-                vote_accounts
-                    .iter()
-                    .map(|v| (v.vote_account, (stake_per_account, v.account.clone())))
+                vote_accounts.iter().map(|v| {
+                    (
+                        v.vote_account,
+                        (stake_per_account, VoteAccount::from(v.account.clone())),
+                    )
+                })
             })
             .collect();
 

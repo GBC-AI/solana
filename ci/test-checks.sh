@@ -8,6 +8,19 @@ source ci/_
 source ci/rust-version.sh stable
 source ci/rust-version.sh nightly
 eval "$(ci/channel-info.sh)"
+cargo="$(readlink -f "./cargo")"
+
+scripts/increment-cargo-version.sh check
+
+# Disallow uncommitted Cargo.lock changes
+(
+  _ scripts/cargo-for-all-lock-files.sh tree >/dev/null
+  set +e
+  if ! _ git diff --exit-code; then
+    echo -e "\nError: Uncommitted Cargo.lock changes" 1>&2
+    exit 1
+  fi
+)
 
 echo --- build environment
 (
@@ -16,14 +29,16 @@ echo --- build environment
   rustup run "$rust_stable" rustc --version --verbose
   rustup run "$rust_nightly" rustc --version --verbose
 
-  cargo +"$rust_stable" --version --verbose
-  cargo +"$rust_nightly" --version --verbose
+  "$cargo" stable --version --verbose
+  "$cargo" nightly --version --verbose
 
-  cargo +"$rust_stable" clippy --version --verbose
-  cargo +"$rust_nightly" clippy --version --verbose
+  "$cargo" stable clippy --version --verbose
+  "$cargo" nightly clippy --version --verbose
 
-  # audit is done only with stable
-  cargo +"$rust_stable" audit --version
+  # audit is done only with "$cargo stable"
+  "$cargo" stable audit --version
+
+  grcov --version
 )
 
 export RUST_BACKTRACE=1
@@ -32,7 +47,7 @@ export RUSTFLAGS="-D warnings -A incomplete_features"
 # Only force up-to-date lock files on edge
 if [[ $CI_BASE_BRANCH = "$EDGE_CHANNEL" ]]; then
   # Exclude --benches as it's not available in rust stable yet
-  if _ scripts/cargo-for-all-lock-files.sh +"$rust_stable" check --locked --tests --bins --examples; then
+  if _ scripts/cargo-for-all-lock-files.sh stable check --locked --tests --bins --examples; then
     true
   else
     check_status=$?
@@ -43,45 +58,29 @@ if [[ $CI_BASE_BRANCH = "$EDGE_CHANNEL" ]]; then
   fi
 
   # Ensure nightly and --benches
-  _ scripts/cargo-for-all-lock-files.sh +"$rust_nightly" check --locked --all-targets
+  _ scripts/cargo-for-all-lock-files.sh nightly check --locked --all-targets
 else
   echo "Note: cargo-for-all-lock-files.sh skipped because $CI_BASE_BRANCH != $EDGE_CHANNEL"
 fi
 
 _ ci/order-crates-for-publishing.py
-_ cargo +"$rust_stable" fmt --all -- --check
 
 # -Z... is needed because of clippy bug: https://github.com/rust-lang/rust-clippy/issues/4612
 # run nightly clippy for `sdk/` as there's a moderate amount of nightly-only code there
-_ cargo +"$rust_nightly" clippy \
-  -Zunstable-options --workspace --all-targets \
-  -- --deny=warnings --allow=clippy::stable_sort_primitive
+_ "$cargo" nightly clippy -Zunstable-options --workspace --all-targets -- --deny=warnings --deny=clippy::integer_arithmetic
 
-cargo_audit_ignores=(
-  # failure is officially deprecated/unmaintained
-  #
-  # Blocked on multiple upstream crates removing their `failure` dependency.
-  --ignore RUSTSEC-2020-0036
+_ "$cargo" stable fmt --all -- --check
 
-  # `net2` crate has been deprecated; use `socket2` instead
-  #
-  # Blocked on https://github.com/paritytech/jsonrpc/issues/575
-  --ignore RUSTSEC-2020-0016
-)
-_ scripts/cargo-for-all-lock-files.sh +"$rust_stable" audit "${cargo_audit_ignores[@]}"
+_ ci/do-audit.sh
 
 {
   cd programs/bpf
-  _ cargo +"$rust_stable" audit
   for project in rust/*/ ; do
     echo "+++ do_bpf_checks $project"
     (
       cd "$project"
-      _ cargo +"$rust_stable" fmt -- --check
-      _ cargo +"$rust_nightly" test
-      _ cargo +"$rust_nightly" clippy -- --deny=warnings \
-        --allow=clippy::missing_safety_doc \
-        --allow=clippy::stable_sort_primitive
+      _ "$cargo" nightly clippy -- --deny=warnings --allow=clippy::missing_safety_doc
+      _ "$cargo" stable fmt -- --check
     )
   done
 }

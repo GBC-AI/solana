@@ -1,22 +1,19 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import bs58 from "bs58";
 import {
   useFetchTransactionStatus,
   useTransactionStatus,
   useTransactionDetails,
 } from "providers/transactions";
-import { useFetchTransactionDetails } from "providers/transactions/details";
+import { useFetchTransactionDetails } from "providers/transactions/parsed";
 import { useCluster, ClusterStatus } from "providers/cluster";
 import {
   TransactionSignature,
   SystemProgram,
   SystemInstruction,
 } from "@solana/web3.js";
-import { lamportsToSolString } from "utils";
-import { UnknownDetailsCard } from "components/instruction/UnknownDetailsCard";
-import { SystemDetailsCard } from "components/instruction/system/SystemDetailsCard";
-import { StakeDetailsCard } from "components/instruction/stake/StakeDetailsCard";
-import { BpfLoaderDetailsCard } from "components/instruction/bpf-loader/BpfLoaderDetailsCard";
+import { SolBalance } from "utils";
 import { ErrorCard } from "components/common/ErrorCard";
 import { LoadingCard } from "components/common/LoadingCard";
 import { TableCardBody } from "components/common/TableCardBody";
@@ -24,18 +21,25 @@ import { displayTimestamp } from "utils/date";
 import { InfoTooltip } from "components/common/InfoTooltip";
 import { Address } from "components/common/Address";
 import { Signature } from "components/common/Signature";
-import { intoTransactionInstruction, isSerumInstruction } from "utils/tx";
-import { TokenDetailsCard } from "components/instruction/token/TokenDetailsCard";
+import { intoTransactionInstruction } from "utils/tx";
 import { FetchStatus } from "providers/cache";
-import { SerumDetailsCard } from "components/instruction/SerumDetailsCard";
 import { Slot } from "components/common/Slot";
+import { BigNumber } from "bignumber.js";
+import { BalanceDelta } from "components/common/BalanceDelta";
+import { TokenBalancesCard } from "components/transaction/TokenBalancesCard";
+import { InstructionsSection } from "components/transaction/InstructionsSection";
+import { ProgramLogSection } from "components/transaction/ProgramLogSection";
+import { clusterPath } from "utils/url";
 
 const AUTO_REFRESH_INTERVAL = 2000;
 const ZERO_CONFIRMATION_BAILOUT = 5;
+export const INNER_INSTRUCTIONS_START_SLOT = 46915769;
 
-type SignatureProps = {
+export type SignatureProps = {
   signature: TransactionSignature;
 };
+
+export const SignatureContext = React.createContext("");
 
 enum AutoRefresh {
   Active,
@@ -58,9 +62,8 @@ export function TransactionDetailsPage({ signature: raw }: SignatureProps) {
   } catch (err) {}
 
   const status = useTransactionStatus(signature);
-  const [zeroConfirmationRetries, setZeroConfirmationRetries] = React.useState(
-    0
-  );
+  const [zeroConfirmationRetries, setZeroConfirmationRetries] =
+    React.useState(0);
 
   let autoRefresh = AutoRefresh.Inactive;
 
@@ -100,12 +103,10 @@ export function TransactionDetailsPage({ signature: raw }: SignatureProps) {
       {signature === undefined ? (
         <ErrorCard text={`Signature "${raw}" is not valid`} />
       ) : (
-        <>
+        <SignatureContext.Provider value={signature}>
           <StatusCard signature={signature} autoRefresh={autoRefresh} />
-          <AccountsCard signature={signature} autoRefresh={autoRefresh} />
-          <InstructionsSection signature={signature} />
-          <ProgramLogSection signature={signature} />
-        </>
+          <DetailsSection signature={signature} />
+        </SignatureContext.Provider>
       )}
     </div>
   );
@@ -118,7 +119,7 @@ function StatusCard({
   const fetchStatus = useFetchTransactionStatus();
   const status = useTransactionStatus(signature);
   const details = useTransactionDetails(signature);
-  const { firstAvailableBlock, status: clusterStatus } = useCluster();
+  const { clusterInfo, status: clusterStatus } = useCluster();
 
   // Fetch transaction on load
   React.useEffect(() => {
@@ -152,12 +153,12 @@ function StatusCard({
       <ErrorCard retry={() => fetchStatus(signature)} text="Fetch Failed" />
     );
   } else if (!status.data?.info) {
-    if (firstAvailableBlock !== undefined && firstAvailableBlock > 1) {
+    if (clusterInfo && clusterInfo.firstAvailableBlock > 0) {
       return (
         <ErrorCard
           retry={() => fetchStatus(signature)}
           text="Not Found"
-          subtext={`Note: Transactions processed before block ${firstAvailableBlock} are not available at this time`}
+          subtext={`Note: Transactions processed before block ${clusterInfo.firstAvailableBlock} are not available at this time`}
         />
       );
     }
@@ -176,7 +177,7 @@ function StatusCard({
 
     return (
       <h3 className="mb-0">
-        <span className={`badge badge-soft-${statusClass}`}>{statusText}</span>
+        <span className={`badge bg-${statusClass}-soft`}>{statusText}</span>
       </h3>
     );
   };
@@ -185,8 +186,14 @@ function StatusCard({
   const transaction = details?.data?.transaction?.transaction;
   const blockhash = transaction?.message.recentBlockhash;
   const isNonce = (() => {
-    if (!transaction) return false;
-    const ix = intoTransactionInstruction(transaction, 0);
+    if (!transaction || transaction.message.instructions.length < 1) {
+      return false;
+    }
+
+    const ix = intoTransactionInstruction(
+      transaction,
+      transaction.message.instructions[0]
+    );
     return (
       ix &&
       SystemProgram.programId.equals(ix.programId) &&
@@ -198,6 +205,13 @@ function StatusCard({
     <div className="card">
       <div className="card-header align-items-center">
         <h3 className="card-header-title">Overview</h3>
+        <Link
+          to={clusterPath(`/tx/${signature}/inspect`)}
+          className="btn btn-white btn-sm me-2"
+        >
+          <span className="fe fe-settings me-2"></span>
+          Inspect
+        </Link>
         {autoRefresh === AutoRefresh.Active ? (
           <span className="spinner-grow spinner-grow-sm"></span>
         ) : (
@@ -205,7 +219,7 @@ function StatusCard({
             className="btn btn-white btn-sm"
             onClick={() => fetchStatus(signature)}
           >
-            <span className="fe fe-refresh-cw mr-2"></span>
+            <span className="fe fe-refresh-cw me-2"></span>
             Refresh
           </button>
         )}
@@ -214,26 +228,28 @@ function StatusCard({
       <TableCardBody>
         <tr>
           <td>Signature</td>
-          <td className="text-lg-right">
+          <td className="text-lg-end">
             <Signature signature={signature} alignRight />
           </td>
         </tr>
 
         <tr>
           <td>Result</td>
-          <td className="text-lg-right">{renderResult()}</td>
+          <td className="text-lg-end">{renderResult()}</td>
         </tr>
 
         <tr>
           <td>Timestamp</td>
-          <td className="text-lg-right">
+          <td className="text-lg-end">
             {info.timestamp !== "unavailable" ? (
-              displayTimestamp(info.timestamp * 1000)
+              <span className="font-monospace">
+                {displayTimestamp(info.timestamp * 1000)}
+              </span>
             ) : (
               <InfoTooltip
                 bottom
                 right
-                text="Timestamps are available for confirmed blocks within the past 5 epochs"
+                text="Timestamps are only available for confirmed blocks"
               >
                 Unavailable
               </InfoTooltip>
@@ -242,13 +258,20 @@ function StatusCard({
         </tr>
 
         <tr>
+          <td>Confirmation Status</td>
+          <td className="text-lg-end text-uppercase">
+            {info.confirmationStatus || "Unknown"}
+          </td>
+        </tr>
+
+        <tr>
           <td>Confirmations</td>
-          <td className="text-lg-right text-uppercase">{info.confirmations}</td>
+          <td className="text-lg-end text-uppercase">{info.confirmations}</td>
         </tr>
 
         <tr>
           <td>Block</td>
-          <td className="text-lg-right">
+          <td className="text-lg-end">
             <Slot slot={info.slot} link />
           </td>
         </tr>
@@ -264,14 +287,16 @@ function StatusCard({
                 </InfoTooltip>
               )}
             </td>
-            <td className="text-lg-right">{blockhash}</td>
+            <td className="text-lg-end">{blockhash}</td>
           </tr>
         )}
 
         {fee && (
           <tr>
             <td>Fee (SOL)</td>
-            <td className="text-lg-right">{lamportsToSolString(fee)}</td>
+            <td className="text-lg-end">
+              <SolBalance lamports={fee} />
+            </td>
           </tr>
         )}
       </TableCardBody>
@@ -279,40 +304,29 @@ function StatusCard({
   );
 }
 
-function AccountsCard({
-  signature,
-  autoRefresh,
-}: SignatureProps & AutoRefreshProps) {
+function DetailsSection({ signature }: SignatureProps) {
   const details = useTransactionDetails(signature);
   const fetchDetails = useFetchTransactionDetails();
-  const fetchStatus = useFetchTransactionStatus();
-  const refreshDetails = () => fetchDetails(signature);
-  const refreshStatus = () => fetchStatus(signature);
+  const status = useTransactionStatus(signature);
   const transaction = details?.data?.transaction?.transaction;
   const message = transaction?.message;
-  const status = useTransactionStatus(signature);
+  const { status: clusterStatus } = useCluster();
+  const refreshDetails = () => fetchDetails(signature);
 
   // Fetch details on load
   React.useEffect(() => {
-    if (status?.data?.info?.confirmations === "max" && !details) {
+    if (
+      !details &&
+      clusterStatus === ClusterStatus.Connected &&
+      status?.status === FetchStatus.Fetched
+    ) {
       fetchDetails(signature);
     }
-  }, [signature, details, status, fetchDetails]);
+  }, [signature, clusterStatus, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!status?.data?.info) {
     return null;
-  } else if (autoRefresh === AutoRefresh.BailedOut) {
-    return (
-      <ErrorCard
-        text="Details are not available until the transaction reaches MAX confirmations"
-        retry={refreshStatus}
-      />
-    );
-  } else if (autoRefresh === AutoRefresh.Active) {
-    return (
-      <ErrorCard text="Details are not available until the transaction reaches MAX confirmations" />
-    );
-  } else if (!details || details.status === FetchStatus.Fetching) {
+  } else if (!details) {
     return <LoadingCard />;
   } else if (details.status === FetchStatus.FetchFailed) {
     return <ErrorCard retry={refreshDetails} text="Failed to fetch details" />;
@@ -320,7 +334,26 @@ function AccountsCard({
     return <ErrorCard text="Details are not available" />;
   }
 
-  const { meta } = details.data.transaction;
+  return (
+    <>
+      <AccountsCard signature={signature} />
+      <TokenBalancesCard signature={signature} />
+      <InstructionsSection signature={signature} />
+      <ProgramLogSection signature={signature} />
+    </>
+  );
+}
+
+function AccountsCard({ signature }: SignatureProps) {
+  const details = useTransactionDetails(signature);
+
+  if (!details?.data?.transaction) {
+    return null;
+  }
+
+  const { meta, transaction } = details.data.transaction;
+  const { message } = transaction;
+
   if (!meta) {
     return <ErrorCard text="Transaction metadata is missing" />;
   }
@@ -330,36 +363,32 @@ function AccountsCard({
     const post = meta.postBalances[index];
     const pubkey = account.pubkey;
     const key = account.pubkey.toBase58();
-    const renderChange = () => {
-      const change = post - pre;
-      if (change === 0) return "";
-      const sols = lamportsToSolString(change);
-      if (change > 0) {
-        return <span className="badge badge-soft-success">+{sols}</span>;
-      } else {
-        return <span className="badge badge-soft-warning">-{sols}</span>;
-      }
-    };
+    const delta = new BigNumber(post).minus(new BigNumber(pre));
 
     return (
       <tr key={key}>
+        <td>{index + 1}</td>
         <td>
           <Address pubkey={pubkey} link />
         </td>
-        <td>{renderChange()}</td>
-        <td>{lamportsToSolString(post)}</td>
+        <td>
+          <BalanceDelta delta={delta} isSol />
+        </td>
+        <td>
+          <SolBalance lamports={post} />
+        </td>
         <td>
           {index === 0 && (
-            <span className="badge badge-soft-info mr-1">Fee Payer</span>
+            <span className="badge bg-info-soft me-1">Fee Payer</span>
           )}
-          {!account.writable && (
-            <span className="badge badge-soft-info mr-1">Readonly</span>
+          {account.writable && (
+            <span className="badge bg-info-soft me-1">Writable</span>
           )}
           {account.signer && (
-            <span className="badge badge-soft-info mr-1">Signer</span>
+            <span className="badge bg-info-soft me-1">Signer</span>
           )}
           {message.instructions.find((ix) => ix.programId.equals(pubkey)) && (
-            <span className="badge badge-soft-info mr-1">Program</span>
+            <span className="badge bg-info-soft me-1">Program</span>
           )}
         </td>
       </tr>
@@ -369,12 +398,13 @@ function AccountsCard({
   return (
     <div className="card">
       <div className="card-header">
-        <h3 className="card-header-title">Account Inputs</h3>
+        <h3 className="card-header-title">Account Input(s)</h3>
       </div>
       <div className="table-responsive mb-0">
         <table className="table table-sm table-nowrap card-table">
           <thead>
             <tr>
+              <th className="text-muted">#</th>
               <th className="text-muted">Address</th>
               <th className="text-muted">Change (SOL)</th>
               <th className="text-muted">Post Balance (SOL)</th>
@@ -385,132 +415,5 @@ function AccountsCard({
         </table>
       </div>
     </div>
-  );
-}
-
-function InstructionsSection({ signature }: SignatureProps) {
-  const status = useTransactionStatus(signature);
-  const details = useTransactionDetails(signature);
-  const fetchDetails = useFetchTransactionDetails();
-  const refreshDetails = () => fetchDetails(signature);
-
-  if (!status?.data?.info || !details?.data?.transaction) return null;
-
-  const { transaction } = details.data.transaction;
-  if (transaction.message.instructions.length === 0) {
-    return <ErrorCard retry={refreshDetails} text="No instructions found" />;
-  }
-
-  const result = status.data.info.result;
-  const instructionDetails = transaction.message.instructions.map(
-    (next, index) => {
-      if ("parsed" in next) {
-        switch (next.program) {
-          case "spl-token":
-            return (
-              <TokenDetailsCard
-                key={index}
-                tx={transaction}
-                ix={next}
-                result={result}
-                index={index}
-              />
-            );
-          case "bpf-loader":
-            return (
-              <BpfLoaderDetailsCard
-                key={index}
-                tx={transaction}
-                ix={next}
-                result={result}
-                index={index}
-              />
-            );
-          case "system":
-            return (
-              <SystemDetailsCard
-                key={index}
-                tx={transaction}
-                ix={next}
-                result={result}
-                index={index}
-              />
-            );
-          case "stake":
-            return (
-              <StakeDetailsCard
-                key={index}
-                tx={transaction}
-                ix={next}
-                result={result}
-                index={index}
-              />
-            );
-          default:
-            const props = { ix: next, result, index };
-            return <UnknownDetailsCard key={index} {...props} />;
-        }
-      }
-
-      const ix = intoTransactionInstruction(transaction, index);
-
-      if (!ix) {
-        return (
-          <ErrorCard
-            key={index}
-            text="Could not display this instruction, please report"
-          />
-        );
-      }
-
-      const props = { ix, result, index, signature };
-
-      if (isSerumInstruction(ix)) {
-        return <SerumDetailsCard key={index} {...props} />;
-      } else {
-        return <UnknownDetailsCard key={index} {...props} />;
-      }
-    }
-  );
-
-  return (
-    <>
-      <div className="container">
-        <div className="header">
-          <div className="header-body">
-            <h3 className="mb-0">Instruction(s)</h3>
-          </div>
-        </div>
-      </div>
-      {instructionDetails}
-    </>
-  );
-}
-
-function ProgramLogSection({ signature }: SignatureProps) {
-  const details = useTransactionDetails(signature);
-  const logMessages = details?.data?.transaction?.meta?.logMessages;
-
-  if (!logMessages || logMessages.length < 1) {
-    return null;
-  }
-
-  return (
-    <>
-      <div className="container">
-        <div className="header">
-          <div className="header-body">
-            <h3 className="card-header-title">Program Log</h3>
-          </div>
-        </div>
-      </div>
-      <div className="card">
-        <ul className="log-messages">
-          {logMessages.map((message, key) => (
-            <li key={key}>{message.replace(/^Program log: /, "")}</li>
-          ))}
-        </ul>
-      </div>
-    </>
   );
 }

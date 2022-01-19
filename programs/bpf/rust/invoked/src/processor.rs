@@ -1,16 +1,18 @@
-//! @brief Example Rust-based BPF program that issues a cross-program-invocation
+//! Example Rust-based BPF program that issues a cross-program-invocation
 
 #![cfg(feature = "program")]
 
-use crate::instruction::*;
+use crate::instructions::*;
 use solana_program::{
     account_info::AccountInfo,
     bpf_loader, entrypoint,
-    entrypoint::ProgramResult,
-    info,
-    program::{invoke, invoke_signed},
+    entrypoint::{ProgramResult, MAX_PERMITTED_DATA_INCREASE},
+    log::sol_log_64,
+    msg,
+    program::{get_return_data, invoke, invoke_signed, set_return_data},
     program_error::ProgramError,
     pubkey::Pubkey,
+    system_instruction,
 };
 
 entrypoint!(process_instruction);
@@ -20,15 +22,17 @@ fn process_instruction(
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    info!("Invoked program");
+    msg!("Invoked program");
 
     if instruction_data.is_empty() {
         return Ok(());
     }
 
+    assert_eq!(get_return_data(), None);
+
     match instruction_data[0] {
-        TEST_VERIFY_TRANSLATIONS => {
-            info!("verify data translations");
+        VERIFY_TRANSLATIONS => {
+            msg!("verify data translations");
 
             const ARGUMENT_INDEX: usize = 0;
             const INVOKED_ARGUMENT_INDEX: usize = 1;
@@ -102,15 +106,19 @@ fn process_instruction(
                 assert!(accounts[INVOKED_PROGRAM_DUP_INDEX]
                     .try_borrow_mut_data()
                     .is_err());
-                info!(data[0], 0, 0, 0, 0);
+                sol_log_64(data[0] as u64, 0, 0, 0, 0);
             }
         }
-        TEST_RETURN_ERROR => {
-            info!("return error");
+        RETURN_OK => {
+            msg!("Ok");
+            return Ok(());
+        }
+        RETURN_ERROR => {
+            msg!("return error");
             return Err(ProgramError::Custom(42));
         }
-        TEST_DERIVED_SIGNERS => {
-            info!("verify derived signers");
+        DERIVED_SIGNERS => {
+            msg!("verify derived signers");
             const INVOKED_PROGRAM_INDEX: usize = 0;
             const DERIVED_KEY1_INDEX: usize = 1;
             const DERIVED_KEY2_INDEX: usize = 2;
@@ -129,7 +137,7 @@ fn process_instruction(
                     (accounts[DERIVED_KEY2_INDEX].key, true, true),
                     (accounts[DERIVED_KEY3_INDEX].key, false, true),
                 ],
-                vec![TEST_VERIFY_NESTED_SIGNERS],
+                vec![VERIFY_NESTED_SIGNERS],
             );
             invoke_signed(
                 &invoked_instruction,
@@ -140,8 +148,8 @@ fn process_instruction(
                 ],
             )?;
         }
-        TEST_VERIFY_NESTED_SIGNERS => {
-            info!("verify nested derived signers");
+        VERIFY_NESTED_SIGNERS => {
+            msg!("verify nested derived signers");
             const DERIVED_KEY1_INDEX: usize = 0;
             const DERIVED_KEY2_INDEX: usize = 1;
             const DERIVED_KEY3_INDEX: usize = 2;
@@ -150,39 +158,75 @@ fn process_instruction(
             assert!(accounts[DERIVED_KEY2_INDEX].is_signer);
             assert!(accounts[DERIVED_KEY3_INDEX].is_signer);
         }
-        TEST_VERIFY_WRITER => {
-            info!("verify writable");
+        VERIFY_WRITER => {
+            msg!("verify writable");
             const ARGUMENT_INDEX: usize = 0;
 
             assert!(!accounts[ARGUMENT_INDEX].is_writable);
         }
-        TEST_VERIFY_PRIVILEGE_ESCALATION => {
-            info!("Success");
+        VERIFY_PRIVILEGE_ESCALATION => {
+            msg!("Verify privilege escalation");
         }
-        TEST_NESTED_INVOKE => {
-            info!("nested invoke");
+        VERIFY_PRIVILEGE_DEESCALATION => {
+            msg!("verify privilege deescalation");
+            const INVOKED_ARGUMENT_INDEX: usize = 0;
+            assert!(!accounts[INVOKED_ARGUMENT_INDEX].is_signer);
+            assert!(!accounts[INVOKED_ARGUMENT_INDEX].is_writable);
+        }
+        VERIFY_PRIVILEGE_DEESCALATION_ESCALATION_SIGNER => {
+            msg!("verify privilege deescalation escalation signer");
+            const INVOKED_PROGRAM_INDEX: usize = 0;
+            const INVOKED_ARGUMENT_INDEX: usize = 1;
 
+            assert!(!accounts[INVOKED_ARGUMENT_INDEX].is_signer);
+            assert!(!accounts[INVOKED_ARGUMENT_INDEX].is_writable);
+            let invoked_instruction = create_instruction(
+                *accounts[INVOKED_PROGRAM_INDEX].key,
+                &[(accounts[INVOKED_ARGUMENT_INDEX].key, true, false)],
+                vec![VERIFY_PRIVILEGE_ESCALATION],
+            );
+            invoke(&invoked_instruction, accounts)?;
+        }
+        VERIFY_PRIVILEGE_DEESCALATION_ESCALATION_WRITABLE => {
+            msg!("verify privilege deescalation escalation writable");
+            const INVOKED_PROGRAM_INDEX: usize = 0;
+            const INVOKED_ARGUMENT_INDEX: usize = 1;
+
+            assert!(!accounts[INVOKED_ARGUMENT_INDEX].is_signer);
+            assert!(!accounts[INVOKED_ARGUMENT_INDEX].is_writable);
+            let invoked_instruction = create_instruction(
+                *accounts[INVOKED_PROGRAM_INDEX].key,
+                &[(accounts[INVOKED_ARGUMENT_INDEX].key, false, true)],
+                vec![VERIFY_PRIVILEGE_ESCALATION],
+            );
+            invoke(&invoked_instruction, accounts)?;
+        }
+        NESTED_INVOKE => {
+            msg!("nested invoke");
             const ARGUMENT_INDEX: usize = 0;
             const INVOKED_ARGUMENT_INDEX: usize = 1;
-            const INVOKED_PROGRAM_INDEX: usize = 3;
+            const INVOKED_PROGRAM_INDEX: usize = 2;
 
             assert!(accounts[INVOKED_ARGUMENT_INDEX].is_signer);
+            assert!(instruction_data.len() > 1);
 
             **accounts[INVOKED_ARGUMENT_INDEX].lamports.borrow_mut() -= 1;
             **accounts[ARGUMENT_INDEX].lamports.borrow_mut() += 1;
-            if accounts.len() > 2 {
-                info!("Invoke again");
+            let remaining_invokes = instruction_data[1];
+            if remaining_invokes > 1 {
+                msg!("Invoke again");
                 let invoked_instruction = create_instruction(
                     *accounts[INVOKED_PROGRAM_INDEX].key,
                     &[
                         (accounts[ARGUMENT_INDEX].key, true, true),
                         (accounts[INVOKED_ARGUMENT_INDEX].key, true, true),
+                        (accounts[INVOKED_PROGRAM_INDEX].key, false, false),
                     ],
-                    vec![TEST_NESTED_INVOKE],
+                    vec![NESTED_INVOKE, remaining_invokes - 1],
                 );
                 invoke(&invoked_instruction, accounts)?;
             } else {
-                info!("Last invoked");
+                msg!("Last invoked");
                 {
                     let mut data = accounts[INVOKED_ARGUMENT_INDEX].try_borrow_mut_data()?;
                     for i in 0..10 {
@@ -190,6 +234,65 @@ fn process_instruction(
                     }
                 }
             }
+        }
+        WRITE_ACCOUNT => {
+            msg!("write account");
+            const ARGUMENT_INDEX: usize = 0;
+
+            for i in 0..instruction_data[1] {
+                accounts[ARGUMENT_INDEX].data.borrow_mut()[i as usize] = instruction_data[1];
+            }
+        }
+        CREATE_AND_INIT => {
+            msg!("Create and init data");
+            {
+                const FROM_INDEX: usize = 0;
+                const DERIVED_KEY2_INDEX: usize = 1;
+
+                let from_lamports = accounts[FROM_INDEX].lamports();
+                let to_lamports = accounts[DERIVED_KEY2_INDEX].lamports();
+                assert_eq!(accounts[DERIVED_KEY2_INDEX].data_len(), 0);
+                assert!(solana_program::system_program::check_id(
+                    accounts[DERIVED_KEY2_INDEX].owner
+                ));
+
+                let bump_seed2 = instruction_data[1];
+                let instruction = system_instruction::create_account(
+                    accounts[FROM_INDEX].key,
+                    accounts[DERIVED_KEY2_INDEX].key,
+                    1,
+                    MAX_PERMITTED_DATA_INCREASE as u64,
+                    program_id,
+                );
+                invoke_signed(
+                    &instruction,
+                    accounts,
+                    &[&[b"Lil'", b"Bits", &[bump_seed2]]],
+                )?;
+
+                assert_eq!(accounts[FROM_INDEX].lamports(), from_lamports - 1);
+                assert_eq!(accounts[DERIVED_KEY2_INDEX].lamports(), to_lamports + 1);
+                assert_eq!(program_id, accounts[DERIVED_KEY2_INDEX].owner);
+                assert_eq!(
+                    accounts[DERIVED_KEY2_INDEX].data_len(),
+                    MAX_PERMITTED_DATA_INCREASE
+                );
+                let mut data = accounts[DERIVED_KEY2_INDEX].try_borrow_mut_data()?;
+                assert_eq!(data[0], 0);
+                data[0] = 0x0e;
+                assert_eq!(data[0], 0x0e);
+                assert_eq!(data[MAX_PERMITTED_DATA_INCREASE - 1], 0);
+                data[MAX_PERMITTED_DATA_INCREASE - 1] = 0x0f;
+                assert_eq!(data[MAX_PERMITTED_DATA_INCREASE - 1], 0x0f);
+                for i in 1..20 {
+                    data[i] = i as u8;
+                }
+            }
+        }
+        SET_RETURN_DATA => {
+            msg!("Set return data");
+
+            set_return_data(b"Set by invoked");
         }
         _ => panic!(),
     }

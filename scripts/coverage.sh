@@ -5,24 +5,42 @@
 # Warning: this process is a little slow
 #
 
+if ! command -v grcov; then
+  echo "Error: grcov not found.  Try |cargo install grcov|"
+  exit 1
+fi
+
+if [[ ! "$(grcov --version)" =~ 0.[678].[0124] ]]; then
+  echo Error: Required grcov version not installed
+
+  echo "Installed version: $(grcov --version)"
+  exit 1
+fi
+
 set -e
 cd "$(dirname "$0")/.."
 source ci/_
+
+cargo="$(readlink -f "./cargo")"
 
 : "${CI_COMMIT:=local}"
 reportName="lcov-${CI_COMMIT:0:9}"
 
 if [[ -z $1 ]]; then
-  packages=( --lib --all --exclude solana-local-cluster )
+  packages=(--lib --all --exclude solana-local-cluster)
 else
-  packages=( "$@" )
+  packages=("$@")
 fi
 
-coverageFlags=(-Zprofile)                # Enable coverage
+coverageFlags=()
+coverageFlags+=(-Zprofile)               # Enable coverage
 coverageFlags+=("-Aincomplete_features") # Supress warnings due to frozen abi, which is harmless for it
-coverageFlags+=("-Clink-dead-code")      # Dead code should appear red in the report
+if [[ $(uname) != Darwin ]]; then        # macOS skipped due to https://github.com/rust-lang/rust/issues/63047
+  coverageFlags+=("-Clink-dead-code")    # Dead code should appear red in the report
+fi
 coverageFlags+=("-Ccodegen-units=1")     # Disable code generation parallelism which is unsupported under -Zprofile (see [rustc issue #51705]).
 coverageFlags+=("-Cinline-threshold=0")  # Disable inlining, which complicates control flow.
+coverageFlags+=("-Copt-level=0")
 coverageFlags+=("-Coverflow-checks=off") # Disable overflow checks, which create unnecessary branches.
 
 export RUSTFLAGS="${coverageFlags[*]} $RUSTFLAGS"
@@ -40,8 +58,6 @@ mkdir -p target/cov
 # Mark the base time for a clean room dir
 touch target/cov/before-test
 
-source ci/rust-version.sh nightly
-
 # Force rebuild of possibly-cached proc macro crates and build.rs because
 # we always want stable coverage for them
 # Don't support odd file names in our repo ever
@@ -52,8 +68,8 @@ if [[ -n $CI || -z $1 ]]; then
     $(git grep -l "proc-macro.*true" :**/Cargo.toml | sed 's|Cargo.toml|src/lib.rs|')
 fi
 
-RUST_LOG=solana=trace _ cargo +$rust_nightly test --target-dir target/cov --no-run "${packages[@]}"
-if RUST_LOG=solana=trace _ cargo +$rust_nightly test --target-dir target/cov "${packages[@]}" 2> target/cov/coverage-stderr.log; then
+RUST_LOG=solana=trace _ "$cargo" nightly test --target-dir target/cov --no-run "${packages[@]}"
+if RUST_LOG=solana=trace _ "$cargo" nightly test --target-dir target/cov "${packages[@]}" 2> target/cov/coverage-stderr.log; then
   test_status=0
 else
   test_status=$?
@@ -81,47 +97,22 @@ find target/cov -type f -name '*.gcda' -newer target/cov/before-test ! -newer ta
     ln -sf "../../../$gcno_file" "target/cov/tmp/$(basename "$gcno_file")"
   done)
 
-_ grcov target/cov/tmp > target/cov/lcov-full.info
-
-echo "--- filter-files-from-lcov"
-
-# List of directories to remove from the coverage report
-ignored_directories="^(bench-tps|upload-perf|bench-streamer|bench-exchange)"
-
-filter-files-from-lcov() {
-  # this function is too noisy for casual bash -x
-  set +x
-  declare skip=false
-  while read -r line; do
-    if [[ $line =~ ^SF:/ ]]; then
-      skip=true # Skip all absolute paths as these are references into ~/.cargo
-    elif [[ $line =~ ^SF:(.*) ]]; then
-      declare file="${BASH_REMATCH[1]}"
-      if [[ $file =~ $ignored_directories ]]; then
-        skip=true # Skip paths into ignored locations
-      elif [[ -r $file ]]; then
-        skip=false
-      else
-        skip=true # Skip relative paths that don't exist
-      fi
-    fi
-    [[ $skip = true ]] || echo "$line"
-  done
-}
-
-filter-files-from-lcov < target/cov/lcov-full.info > target/cov/lcov.info
-
-echo "--- html report"
-# ProTip: genhtml comes from |brew install lcov| or |apt-get install lcov|
-genhtml --output-directory target/cov/$reportName \
-  --show-details \
-  --highlight \
-  --ignore-errors source \
-  --prefix "$PWD" \
-  --legend \
-  target/cov/lcov.info
-
 (
+  grcov_args=(
+    target/cov/tmp
+    --llvm
+    --ignore \*.cargo\*
+    --ignore \*build.rs
+    --ignore bench-tps\*
+    --ignore upload-perf\*
+    --ignore bench-streamer\*
+    --ignore local-cluster\*
+  )
+
+  set -x
+  grcov "${grcov_args[@]}" -t html -o target/cov/$reportName
+  grcov "${grcov_args[@]}" -t lcov -o target/cov/lcov.info
+
   cd target/cov
   tar zcf report.tar.gz $reportName
 )

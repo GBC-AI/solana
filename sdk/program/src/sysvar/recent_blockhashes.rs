@@ -1,38 +1,51 @@
-use crate::{
-    declare_sysvar_id,
-    fee_calculator::FeeCalculator,
-    hash::{hash, Hash},
-    sysvar::Sysvar,
+#![allow(deprecated)]
+#![allow(clippy::integer_arithmetic)]
+use {
+    crate::{
+        declare_deprecated_sysvar_id,
+        fee_calculator::FeeCalculator,
+        hash::{hash, Hash},
+        sysvar::Sysvar,
+    },
+    std::{cmp::Ordering, collections::BinaryHeap, iter::FromIterator, ops::Deref},
 };
-use std::{cmp::Ordering, collections::BinaryHeap, iter::FromIterator, ops::Deref};
 
-toml_config::package_config! {
-    RECENT_BLOCKHASHES_MAX_ENTRIES: usize,
-}
+#[deprecated(
+    since = "1.9.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
+pub const MAX_ENTRIES: usize = 150;
 
-declare_sysvar_id!(
+declare_deprecated_sysvar_id!(
     "SysvarRecentB1ockHashes11111111111111111111",
     RecentBlockhashes
 );
 
+#[deprecated(
+    since = "1.9.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
 #[repr(C)]
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Entry {
     pub blockhash: Hash,
     pub fee_calculator: FeeCalculator,
 }
-
 impl Entry {
-    pub fn new(blockhash: &Hash, fee_calculator: &FeeCalculator) -> Self {
+    pub fn new(blockhash: &Hash, lamports_per_signature: u64) -> Self {
         Self {
             blockhash: *blockhash,
-            fee_calculator: fee_calculator.clone(),
+            fee_calculator: FeeCalculator::new(lamports_per_signature),
         }
     }
 }
 
+#[deprecated(
+    since = "1.9.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
 #[derive(Clone, Debug)]
-pub struct IterItem<'a>(pub u64, pub &'a Hash, pub &'a FeeCalculator);
+pub struct IterItem<'a>(pub u64, pub &'a Hash, pub u64);
 
 impl<'a> Eq for IterItem<'a> {}
 
@@ -54,13 +67,21 @@ impl<'a> PartialOrd for IterItem<'a> {
     }
 }
 
+/// Contains recent block hashes and fee calculators.
+///
+/// The entries are ordered by descending block height, so the first entry holds
+/// the most recent block hash, and the last entry holds an old block hash.
+#[deprecated(
+    since = "1.9.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
 #[repr(C)]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct RecentBlockhashes(Vec<Entry>);
 
 impl Default for RecentBlockhashes {
     fn default() -> Self {
-        Self(Vec::with_capacity(CFG.RECENT_BLOCKHASHES_MAX_ENTRIES))
+        Self(Vec::with_capacity(MAX_ENTRIES))
     }
 }
 
@@ -125,43 +146,38 @@ impl Deref for RecentBlockhashes {
 }
 
 pub fn create_test_recent_blockhashes(start: usize) -> RecentBlockhashes {
-    let blocks: Vec<_> = (start..start + CFG.RECENT_BLOCKHASHES_MAX_ENTRIES)
+    let blocks: Vec<_> = (start..start + MAX_ENTRIES)
         .map(|i| {
             (
                 i as u64,
                 hash(&bincode::serialize(&i).unwrap()),
-                FeeCalculator::new(i as u64 * 100),
+                i as u64 * 100,
             )
         })
         .collect();
-    let bhq: Vec<_> = blocks
+    blocks
         .iter()
-        .map(|(i, hash, fee_calc)| IterItem(*i, hash, fee_calc))
-        .collect();
-    RecentBlockhashes::from_iter(bhq.into_iter())
+        .map(|(i, hash, lamports_per_signature)| IterItem(*i, hash, *lamports_per_signature))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::clock::MAX_PROCESSING_AGE;
+    use {super::*, crate::clock::MAX_PROCESSING_AGE};
 
     #[test]
     #[allow(clippy::assertions_on_constants)]
     fn test_sysvar_can_hold_all_active_blockhashes() {
         // Ensure we can still hold all of the active entries in `BlockhashQueue`
-        assert!(*MAX_PROCESSING_AGE <= CFG.RECENT_BLOCKHASHES_MAX_ENTRIES);
+        assert!(MAX_PROCESSING_AGE <= MAX_ENTRIES);
     }
 
     #[test]
     fn test_size_of() {
-        let entry = Entry::new(&Hash::default(), &FeeCalculator::default());
+        let entry = Entry::new(&Hash::default(), 0);
         assert_eq!(
-            bincode::serialized_size(&RecentBlockhashes(vec![
-                entry;
-                CFG.RECENT_BLOCKHASHES_MAX_ENTRIES
-            ]))
-            .unwrap() as usize,
+            bincode::serialized_size(&RecentBlockhashes(vec![entry; MAX_ENTRIES])).unwrap()
+                as usize,
             RecentBlockhashes::size_of()
         );
     }

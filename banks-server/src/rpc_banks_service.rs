@@ -1,19 +1,22 @@
 //! The `rpc_banks_service` module implements the Solana Banks RPC API.
 
-use crate::banks_server::start_tcp_server;
-use futures::{future::FutureExt, pin_mut, prelude::stream::StreamExt, select};
-use solana_runtime::{bank_forks::BankForks, commitment::BlockCommitmentCache};
-use std::{
-    net::SocketAddr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+use {
+    crate::banks_server::start_tcp_server,
+    futures::{future::FutureExt, pin_mut, prelude::stream::StreamExt, select},
+    solana_runtime::{bank_forks::BankForks, commitment::BlockCommitmentCache},
+    std::{
+        net::SocketAddr,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc, RwLock,
+        },
+        thread::{self, Builder, JoinHandle},
     },
-    thread::{self, Builder, JoinHandle},
-};
-use tokio::{
-    runtime::Runtime,
-    time::{self, Duration},
+    tokio::{
+        runtime::Runtime,
+        time::{self, Duration},
+    },
+    tokio_stream::wrappers::IntervalStream,
 };
 
 pub struct RpcBanksService {
@@ -35,7 +38,7 @@ async fn start_abortable_tcp_server(
         block_commitment_cache.clone(),
     )
     .fuse();
-    let interval = time::interval(Duration::from_millis(100)).fuse();
+    let interval = IntervalStream::new(time::interval(Duration::from_millis(100))).fuse();
     pin_mut!(server, interval);
     loop {
         select! {
@@ -100,12 +103,11 @@ impl RpcBanksService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use solana_runtime::bank::Bank;
+    use {super::*, solana_runtime::bank::Bank};
 
     #[test]
     fn test_rpc_banks_server_exit() {
-        let bank_forks = Arc::new(RwLock::new(BankForks::new(Bank::default())));
+        let bank_forks = Arc::new(RwLock::new(BankForks::new(Bank::default_for_tests())));
         let block_commitment_cache = Arc::new(RwLock::new(BlockCommitmentCache::default()));
         let exit = Arc::new(AtomicBool::new(false));
         let addr = "127.0.0.1:0".parse().unwrap();

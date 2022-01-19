@@ -1,21 +1,26 @@
-use crate::{
-    parse_account_data::{ParsableAccount, ParseAccountError},
-    StringAmount, UiFeeCalculator,
-};
-use bincode::deserialize;
-use bv::BitVec;
-use solana_sdk::{
-    clock::{Clock, Epoch, Slot, UnixTimestamp},
-    epoch_schedule::EpochSchedule,
-    pubkey::Pubkey,
-    rent::Rent,
-    slot_hashes::SlotHashes,
-    slot_history::{self, SlotHistory},
-    stake_history::{StakeHistory, StakeHistoryEntry},
-    sysvar::{self, fees::Fees, recent_blockhashes::RecentBlockhashes, rewards::Rewards},
+#[allow(deprecated)]
+use solana_sdk::sysvar::{fees::Fees, recent_blockhashes::RecentBlockhashes};
+use {
+    crate::{
+        parse_account_data::{ParsableAccount, ParseAccountError},
+        StringAmount, UiFeeCalculator,
+    },
+    bincode::deserialize,
+    bv::BitVec,
+    solana_sdk::{
+        clock::{Clock, Epoch, Slot, UnixTimestamp},
+        epoch_schedule::EpochSchedule,
+        pubkey::Pubkey,
+        rent::Rent,
+        slot_hashes::SlotHashes,
+        slot_history::{self, SlotHistory},
+        stake_history::{StakeHistory, StakeHistoryEntry},
+        sysvar::{self, rewards::Rewards},
+    },
 };
 
 pub fn parse_sysvar(data: &[u8], pubkey: &Pubkey) -> Result<SysvarAccountType, ParseAccountError> {
+    #[allow(deprecated)]
     let parsed_account = {
         if pubkey == &sysvar::clock::id() {
             deserialize::<Clock>(data)
@@ -91,7 +96,9 @@ pub fn parse_sysvar(data: &[u8], pubkey: &Pubkey) -> Result<SysvarAccountType, P
 pub enum SysvarAccountType {
     Clock(UiClock),
     EpochSchedule(EpochSchedule),
+    #[allow(deprecated)]
     Fees(UiFees),
+    #[allow(deprecated)]
     RecentBlockhashes(Vec<UiRecentBlockhashesEntry>),
     Rent(UiRent),
     Rewards(UiRewards),
@@ -105,6 +112,7 @@ pub enum SysvarAccountType {
 pub struct UiClock {
     pub slot: Slot,
     pub epoch: Epoch,
+    pub epoch_start_timestamp: UnixTimestamp,
     pub leader_schedule_epoch: Epoch,
     pub unix_timestamp: UnixTimestamp,
 }
@@ -114,6 +122,7 @@ impl From<Clock> for UiClock {
         Self {
             slot: clock.slot,
             epoch: clock.epoch,
+            epoch_start_timestamp: clock.epoch_start_timestamp,
             leader_schedule_epoch: clock.leader_schedule_epoch,
             unix_timestamp: clock.unix_timestamp,
         }
@@ -125,6 +134,7 @@ impl From<Clock> for UiClock {
 pub struct UiFees {
     pub fee_calculator: UiFeeCalculator,
 }
+#[allow(deprecated)]
 impl From<Fees> for UiFees {
     fn from(fees: Fees) -> Self {
         Self {
@@ -190,7 +200,7 @@ struct SlotHistoryBits(BitVec<u64>);
 
 impl std::fmt::Debug for SlotHistoryBits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for i in 0..slot_history::CFG.SLOT_HISTORY_MAX_ENTRIES {
+        for i in 0..slot_history::MAX_ENTRIES {
             if self.0.get(i) {
                 write!(f, "1")?;
             } else {
@@ -210,16 +220,18 @@ pub struct UiStakeHistoryEntry {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use solana_sdk::{
-        account::create_account, fee_calculator::FeeCalculator, hash::Hash,
-        sysvar::recent_blockhashes::IterItem,
+    #[allow(deprecated)]
+    use solana_sdk::sysvar::recent_blockhashes::IterItem;
+    use {
+        super::*,
+        solana_sdk::{account::create_account_for_test, fee_calculator::FeeCalculator, hash::Hash},
     };
-    use std::iter::FromIterator;
 
     #[test]
     fn test_parse_sysvars() {
-        let clock_sysvar = create_account(&Clock::default(), 1);
+        let hash = Hash::new(&[1; 32]);
+
+        let clock_sysvar = create_account_for_test(&Clock::default());
         assert_eq!(
             parse_sysvar(&clock_sysvar.data, &sysvar::clock::id()).unwrap(),
             SysvarAccountType::Clock(UiClock::default()),
@@ -232,49 +244,48 @@ mod test {
             first_normal_epoch: 1,
             first_normal_slot: 12,
         };
-        let epoch_schedule_sysvar = create_account(&epoch_schedule, 1);
+        let epoch_schedule_sysvar = create_account_for_test(&epoch_schedule);
         assert_eq!(
             parse_sysvar(&epoch_schedule_sysvar.data, &sysvar::epoch_schedule::id()).unwrap(),
             SysvarAccountType::EpochSchedule(epoch_schedule),
         );
 
-        let fees_sysvar = create_account(&Fees::default(), 1);
-        assert_eq!(
-            parse_sysvar(&fees_sysvar.data, &sysvar::fees::id()).unwrap(),
-            SysvarAccountType::Fees(UiFees::default()),
-        );
+        #[allow(deprecated)]
+        {
+            let fees_sysvar = create_account_for_test(&Fees::default());
+            assert_eq!(
+                parse_sysvar(&fees_sysvar.data, &sysvar::fees::id()).unwrap(),
+                SysvarAccountType::Fees(UiFees::default()),
+            );
 
-        let hash = Hash::new(&[1; 32]);
-        let fee_calculator = FeeCalculator {
-            lamports_per_signature: 10,
-        };
-        let recent_blockhashes =
-            RecentBlockhashes::from_iter(vec![IterItem(0, &hash, &fee_calculator)].into_iter());
-        let recent_blockhashes_sysvar = create_account(&recent_blockhashes, 1);
-        assert_eq!(
-            parse_sysvar(
-                &recent_blockhashes_sysvar.data,
-                &sysvar::recent_blockhashes::id()
-            )
-            .unwrap(),
-            SysvarAccountType::RecentBlockhashes(vec![UiRecentBlockhashesEntry {
-                blockhash: hash.to_string(),
-                fee_calculator: fee_calculator.into(),
-            }]),
-        );
+            let recent_blockhashes: RecentBlockhashes =
+                vec![IterItem(0, &hash, 10)].into_iter().collect();
+            let recent_blockhashes_sysvar = create_account_for_test(&recent_blockhashes);
+            assert_eq!(
+                parse_sysvar(
+                    &recent_blockhashes_sysvar.data,
+                    &sysvar::recent_blockhashes::id()
+                )
+                .unwrap(),
+                SysvarAccountType::RecentBlockhashes(vec![UiRecentBlockhashesEntry {
+                    blockhash: hash.to_string(),
+                    fee_calculator: FeeCalculator::new(10).into(),
+                }]),
+            );
+        }
 
         let rent = Rent {
             lamports_per_byte_year: 10,
             exemption_threshold: 2.0,
             burn_percent: 5,
         };
-        let rent_sysvar = create_account(&rent, 1);
+        let rent_sysvar = create_account_for_test(&rent);
         assert_eq!(
             parse_sysvar(&rent_sysvar.data, &sysvar::rent::id()).unwrap(),
             SysvarAccountType::Rent(rent.into()),
         );
 
-        let rewards_sysvar = create_account(&Rewards::default(), 1);
+        let rewards_sysvar = create_account_for_test(&Rewards::default());
         assert_eq!(
             parse_sysvar(&rewards_sysvar.data, &sysvar::rewards::id()).unwrap(),
             SysvarAccountType::Rewards(UiRewards::default()),
@@ -282,7 +293,7 @@ mod test {
 
         let mut slot_hashes = SlotHashes::default();
         slot_hashes.add(1, hash);
-        let slot_hashes_sysvar = create_account(&slot_hashes, 1);
+        let slot_hashes_sysvar = create_account_for_test(&slot_hashes);
         assert_eq!(
             parse_sysvar(&slot_hashes_sysvar.data, &sysvar::slot_hashes::id()).unwrap(),
             SysvarAccountType::SlotHashes(vec![UiSlotHashEntry {
@@ -293,7 +304,7 @@ mod test {
 
         let mut slot_history = SlotHistory::default();
         slot_history.add(42);
-        let slot_history_sysvar = create_account(&slot_history, 1);
+        let slot_history_sysvar = create_account_for_test(&slot_history);
         assert_eq!(
             parse_sysvar(&slot_history_sysvar.data, &sysvar::slot_history::id()).unwrap(),
             SysvarAccountType::SlotHistory(UiSlotHistory {
@@ -309,7 +320,7 @@ mod test {
             deactivating: 3,
         };
         stake_history.add(1, stake_history_entry.clone());
-        let stake_history_sysvar = create_account(&stake_history, 1);
+        let stake_history_sysvar = create_account_for_test(&stake_history);
         assert_eq!(
             parse_sysvar(&stake_history_sysvar.data, &sysvar::stake_history::id()).unwrap(),
             SysvarAccountType::StakeHistory(vec![UiStakeHistoryEntry {

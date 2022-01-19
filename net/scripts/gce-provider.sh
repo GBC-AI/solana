@@ -8,6 +8,10 @@ cloud_DefaultZone() {
   echo "us-west1-b"
 }
 
+cloud_DefaultCustomMemoryGB() {
+  echo 64
+}
+
 #
 # cloud_RestartPreemptedInstances [namePrefix]
 #
@@ -162,22 +166,22 @@ cloud_CreateInstances() {
   declare optionalBootDiskSize="$7"
   declare optionalStartupScript="$8"
   declare optionalAddress="$9"
-  declare optionalBootDiskType="${10}"
+  declare optionalBootDiskType="${10:-pd-ssd}"
   declare optionalAdditionalDiskSize="${11}"
   declare optionalPreemptible="${12}"
   #declare sshPrivateKey="${13}"  # unused
 
   if $enableGpu; then
-    # Custom Ubuntu 18.04 LTS image with CUDA 9.2 and CUDA 10.0 installed
+    # Custom Ubuntu 20.04 LTS image with CUDA 10.2 installed
     #
     # Unfortunately this image is not public.  When this becomes an issue, use
-    # the stock Ubuntu 18.04 image and programmatically install CUDA after the
+    # the stock Ubuntu 20.04 image and programmatically install CUDA after the
     # instance boots
     #
-    imageName="ubuntu-1804-bionic-v20181029-with-cuda-10-and-cuda-9-2 --image-project principal-lane-200702"
+    imageName="ubuntu-2004-focal-v20201211-with-cuda-10-2 --image-project principal-lane-200702"
   else
-    # Upstream Ubuntu 18.04 LTS image
-    imageName="ubuntu-1804-bionic-v20190813a --image-project ubuntu-os-cloud"
+    # Upstream Ubuntu 20.04 LTS image
+    imageName="ubuntu-2004-focal-v20201201 --image-project ubuntu-os-cloud"
   fi
 
   declare -a nodes

@@ -1,16 +1,30 @@
+#![allow(clippy::integer_arithmetic)]
 pub mod config_instruction;
 pub mod config_processor;
 pub mod date_instruction;
 
-use bincode::{deserialize, serialize, serialized_size};
-use serde_derive::{Deserialize, Serialize};
-use solana_sdk::{account::Account, pubkey::Pubkey, short_vec};
-
-solana_sdk::declare_id!("Config1111111111111111111111111111111111111");
+pub use solana_sdk::config::program::id;
+use {
+    bincode::{deserialize, serialize, serialized_size},
+    serde_derive::{Deserialize, Serialize},
+    solana_sdk::{
+        account::{Account, AccountSharedData},
+        pubkey::Pubkey,
+        short_vec,
+        stake::config::Config as StakeConfig,
+    },
+};
 
 pub trait ConfigState: serde::Serialize + Default {
     /// Maximum space that the serialized representation will require
     fn max_space() -> u64;
+}
+
+// TODO move ConfigState into `solana_program` to implement trait locally
+impl ConfigState for StakeConfig {
+    fn max_space() -> u64 {
+        serialized_size(&StakeConfig::default()).unwrap()
+    }
 }
 
 /// A collection of keys to be stored in Config account data.
@@ -39,13 +53,13 @@ pub fn create_config_account<T: ConfigState>(
     keys: Vec<(Pubkey, bool)>,
     config_data: &T,
     lamports: u64,
-) -> Account {
+) -> AccountSharedData {
     let mut data = serialize(&ConfigKeys { keys }).unwrap();
     data.extend_from_slice(&serialize(config_data).unwrap());
-    Account {
+    AccountSharedData::from(Account {
         lamports,
         data,
         owner: id(),
         ..Account::default()
-    }
+    })
 }

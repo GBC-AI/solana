@@ -1,10 +1,12 @@
-use crate::parse_instruction::{
-    check_num_accounts, ParsableProgram, ParseInstructionError, ParsedInstructionEnum,
+use {
+    crate::parse_instruction::{
+        check_num_accounts, ParsableProgram, ParseInstructionError, ParsedInstructionEnum,
+    },
+    bincode::deserialize,
+    serde_json::json,
+    solana_sdk::{instruction::CompiledInstruction, pubkey::Pubkey},
+    solana_vote_program::vote_instruction::VoteInstruction,
 };
-use bincode::deserialize;
-use serde_json::json;
-use solana_sdk::{instruction::CompiledInstruction, pubkey::Pubkey};
-use solana_vote_program::vote_instruction::VoteInstruction;
 
 pub fn parse_vote(
     instruction: &CompiledInstruction,
@@ -68,6 +70,45 @@ pub fn parse_vote(
                 }),
             })
         }
+        VoteInstruction::UpdateVoteState(vote_state_update) => {
+            check_num_vote_accounts(&instruction.accounts, 4)?;
+            let vote_state_update = json!({
+                "lockouts": vote_state_update.lockouts,
+                "root": vote_state_update.root,
+                "hash": vote_state_update.hash.to_string(),
+                "timestamp": vote_state_update.timestamp,
+            });
+            Ok(ParsedInstructionEnum {
+                instruction_type: "updatevotestate".to_string(),
+                info: json!({
+                    "voteAccount": account_keys[instruction.accounts[0] as usize].to_string(),
+                    "slotHashesSysvar": account_keys[instruction.accounts[1] as usize].to_string(),
+                    "clockSysvar": account_keys[instruction.accounts[2] as usize].to_string(),
+                    "voteAuthority": account_keys[instruction.accounts[3] as usize].to_string(),
+                    "voteStateUpdate": vote_state_update,
+                }),
+            })
+        }
+        VoteInstruction::UpdateVoteStateSwitch(vote_state_update, hash) => {
+            check_num_vote_accounts(&instruction.accounts, 4)?;
+            let vote_state_update = json!({
+                "lockouts": vote_state_update.lockouts,
+                "root": vote_state_update.root,
+                "hash": vote_state_update.hash.to_string(),
+                "timestamp": vote_state_update.timestamp,
+            });
+            Ok(ParsedInstructionEnum {
+                instruction_type: "updatevotestateswitch".to_string(),
+                info: json!({
+                    "voteAccount": account_keys[instruction.accounts[0] as usize].to_string(),
+                    "slotHashesSysvar": account_keys[instruction.accounts[1] as usize].to_string(),
+                    "clockSysvar": account_keys[instruction.accounts[2] as usize].to_string(),
+                    "voteAuthority": account_keys[instruction.accounts[3] as usize].to_string(),
+                    "voteStateUpdate": vote_state_update,
+                    "hash": hash.to_string(),
+                }),
+            })
+        }
         VoteInstruction::Withdraw(lamports) => {
             check_num_vote_accounts(&instruction.accounts, 3)?;
             Ok(ParsedInstructionEnum {
@@ -121,6 +162,19 @@ pub fn parse_vote(
                 }),
             })
         }
+        VoteInstruction::AuthorizeChecked(authority_type) => {
+            check_num_vote_accounts(&instruction.accounts, 4)?;
+            Ok(ParsedInstructionEnum {
+                instruction_type: "authorizeChecked".to_string(),
+                info: json!({
+                    "voteAccount": account_keys[instruction.accounts[0] as usize].to_string(),
+                    "clockSysvar": account_keys[instruction.accounts[1] as usize].to_string(),
+                    "authority": account_keys[instruction.accounts[2] as usize].to_string(),
+                    "newAuthority": account_keys[instruction.accounts[3] as usize].to_string(),
+                    "authorityType": authority_type,
+                }),
+            })
+        }
     }
 }
 
@@ -130,11 +184,13 @@ fn check_num_vote_accounts(accounts: &[u8], num: usize) -> Result<(), ParseInstr
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use solana_sdk::{hash::Hash, message::Message, pubkey::Pubkey};
-    use solana_vote_program::{
-        vote_instruction,
-        vote_state::{Vote, VoteAuthorize, VoteInit},
+    use {
+        super::*,
+        solana_sdk::{hash::Hash, message::Message, pubkey::Pubkey},
+        solana_vote_program::{
+            vote_instruction,
+            vote_state::{Vote, VoteAuthorize, VoteInit},
+        },
     };
 
     #[test]
@@ -146,7 +202,7 @@ mod test {
         }
 
         let lamports = 55;
-        let hash = Hash([1; 32]);
+        let hash = Hash::new_from_array([1; 32]);
         let vote = Vote {
             slots: vec![1, 2, 4],
             hash,
@@ -272,7 +328,7 @@ mod test {
         );
         assert!(parse_vote(&message.instructions[0], &keys[0..1]).is_err());
 
-        let proof_hash = Hash([2; 32]);
+        let proof_hash = Hash::new_from_array([2; 32]);
         let instruction = vote_instruction::vote_switch(&keys[1], &keys[0], vote, proof_hash);
         let message = Message::new(&[instruction], None);
         assert_eq!(
@@ -290,6 +346,25 @@ mod test {
                         "timestamp": 1_234_567_890,
                     },
                     "hash": proof_hash.to_string(),
+                }),
+            }
+        );
+        assert!(parse_vote(&message.instructions[0], &keys[0..3]).is_err());
+
+        let authority_type = VoteAuthorize::Voter;
+        let instruction =
+            vote_instruction::authorize_checked(&keys[1], &keys[0], &keys[3], authority_type);
+        let message = Message::new(&[instruction], None);
+        assert_eq!(
+            parse_vote(&message.instructions[0], &keys[0..4]).unwrap(),
+            ParsedInstructionEnum {
+                instruction_type: "authorizeChecked".to_string(),
+                info: json!({
+                    "voteAccount": keys[2].to_string(),
+                    "clockSysvar": keys[3].to_string(),
+                    "authority": keys[0].to_string(),
+                    "newAuthority": keys[1].to_string(),
+                    "authorityType": authority_type,
                 }),
             }
         );

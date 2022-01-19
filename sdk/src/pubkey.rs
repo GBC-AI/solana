@@ -3,7 +3,7 @@ pub use solana_program::pubkey::*;
 /// New random Pubkey for tests and benchmarks.
 #[cfg(feature = "full")]
 pub fn new_rand() -> Pubkey {
-    Pubkey::new(&rand::random::<[u8; 32]>())
+    Pubkey::new(&rand::random::<[u8; PUBKEY_BYTES]>())
 }
 
 #[cfg(feature = "full")]
@@ -33,8 +33,7 @@ pub fn read_pubkey_file(infile: &str) -> Result<Pubkey, Box<dyn std::error::Erro
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::fs::remove_file;
+    use {super::*, std::fs::remove_file};
 
     #[test]
     fn test_read_write_pubkey() -> Result<(), Box<dyn std::error::Error>> {

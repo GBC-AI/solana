@@ -1,5 +1,5 @@
 import React from "react";
-import { coerce } from "superstruct";
+import { create } from "superstruct";
 import {
   SignatureResult,
   ParsedTransaction,
@@ -24,24 +24,25 @@ import {
 } from "providers/accounts";
 import { normalizeTokenAmount } from "utils";
 import { reportError } from "utils/sentry";
-import { useCluster } from "providers/cluster";
-import { TokenRegistry } from "tokenRegistry";
+import { useTokenRegistry } from "providers/mints/token-registry";
 
 type DetailsProps = {
   tx: ParsedTransaction;
   ix: ParsedInstruction;
   result: SignatureResult;
   index: number;
+  innerCards?: JSX.Element[];
+  childIndex?: number;
 };
 
 export function TokenDetailsCard(props: DetailsProps) {
   try {
-    const parsed = coerce(props.ix.parsed, ParsedInfo);
+    const parsed = create(props.ix.parsed, ParsedInfo);
     const { type: rawType, info } = parsed;
-    const type = coerce(rawType, TokenInstructionType);
-    const title = `Token: ${IX_TITLES[type]}`;
-    const coerced = coerce(info, IX_STRUCTS[type] as any);
-    return <TokenInstruction title={title} info={coerced} {...props} />;
+    const type = create(rawType, TokenInstructionType);
+    const title = `Token Program: ${IX_TITLES[type]}`;
+    const created = create(info, IX_STRUCTS[type] as any);
+    return <TokenInstruction title={title} info={created} {...props} />;
   } catch (err) {
     reportError(err, {
       signature: props.tx.signatures[0],
@@ -56,6 +57,8 @@ type InfoProps = {
   result: SignatureResult;
   index: number;
   title: string;
+  innerCards?: JSX.Element[];
+  childIndex?: number;
 };
 
 function TokenInstruction(props: InfoProps) {
@@ -88,7 +91,7 @@ function TokenInstruction(props: InfoProps) {
   const tokenInfo = useTokenAccountInfo(tokenAddress);
   const mintAddress = infoMintAddress || tokenInfo?.mint.toBase58();
   const mintInfo = useMintAccountInfo(mintAddress);
-  const { cluster } = useCluster();
+  const { tokenRegistry } = useTokenRegistry();
   const fetchAccountInfo = useFetchAccountInfo();
 
   React.useEffect(() => {
@@ -112,16 +115,16 @@ function TokenInstruction(props: InfoProps) {
   }
 
   if (mintAddress) {
-    const tokenDetails = TokenRegistry.get(mintAddress, cluster);
+    const tokenDetails = tokenRegistry.get(mintAddress);
 
-    if (tokenDetails && "symbol" in tokenDetails) {
+    if (tokenDetails) {
       tokenSymbol = tokenDetails.symbol;
     }
 
     attributes.push(
       <tr key={mintAddress}>
         <td>Token</td>
-        <td className="text-lg-right">
+        <td className="text-lg-end">
           <Address pubkey={new PublicKey(mintAddress)} alignRight link />
         </td>
       </tr>
@@ -141,7 +144,7 @@ function TokenInstruction(props: InfoProps) {
         attributes.push(
           <tr key={key + i}>
             <td>{label}</td>
-            <td className="text-lg-right">
+            <td className="text-lg-end">
               <Address pubkey={publicKey} alignRight link />
             </td>
           </tr>
@@ -184,7 +187,7 @@ function TokenInstruction(props: InfoProps) {
     attributes.push(
       <tr key={key}>
         <td>{label}</td>
-        <td className="text-lg-right">{tag}</td>
+        <td className="text-lg-end">{tag}</td>
       </tr>
     );
   }
@@ -195,6 +198,8 @@ function TokenInstruction(props: InfoProps) {
       index={props.index}
       result={props.result}
       title={props.title}
+      innerCards={props.innerCards}
+      childIndex={props.childIndex}
     >
       {attributes}
     </InstructionCard>

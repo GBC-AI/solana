@@ -1,7 +1,7 @@
 import React from "react";
 import * as Sentry from "@sentry/react";
 import * as Cache from "providers/cache";
-import { Connection, ConfirmedBlock } from "@solana/web3.js";
+import { Connection, BlockResponse } from "@solana/web3.js";
 import { useCluster, Cluster } from "./cluster";
 
 export enum FetchStatus {
@@ -16,7 +16,8 @@ export enum ActionType {
 }
 
 type Block = {
-  block?: ConfirmedBlock;
+  block?: BlockResponse;
+  child?: number;
 };
 
 type State = Cache.State<Block>;
@@ -71,19 +72,20 @@ export async function fetchBlock(
   let data: Block | undefined = undefined;
 
   try {
-    const connection = new Connection(url, "max");
-    data = { block: await connection.getConfirmedBlock(Number(key)) };
-    status = FetchStatus.Fetched;
-  } catch (err) {
-    const error = err as Error;
-    if (error.message.includes("not found")) {
-      data = {} as Block;
+    const connection = new Connection(url, "confirmed");
+    const block = await connection.getBlock(key);
+    const child = (await connection.getBlocks(key + 1, key + 100)).shift();
+    if (block === null) {
+      data = {};
       status = FetchStatus.Fetched;
     } else {
-      status = FetchStatus.FetchFailed;
-      if (cluster !== Cluster.Custom) {
-        Sentry.captureException(error, { tags: { url } });
-      }
+      data = { block, child };
+      status = FetchStatus.Fetched;
+    }
+  } catch (err) {
+    status = FetchStatus.FetchFailed;
+    if (cluster !== Cluster.Custom) {
+      Sentry.captureException(err, { tags: { url } });
     }
   }
 

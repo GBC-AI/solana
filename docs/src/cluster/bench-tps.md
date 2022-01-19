@@ -96,13 +96,13 @@ For example
 - To enable `info` everywhere and `debug` only in the solana::banking_stage module:
 
   ```bash
-export RUST_LOG=solana=info,solana::banking_stage=debug
+  export RUST_LOG=solana=info,solana::banking_stage=debug
   ```
 
 - To enable BPF program logging:
 
   ```bash
-export RUST_LOG=solana_bpf_loader=trace
+  export RUST_LOG=solana_bpf_loader=trace
   ```
 
 Generally we are using `debug` for infrequent debug messages, `trace` for potentially frequent messages and `info` for performance-related logging.
@@ -123,7 +123,7 @@ This will dump all the threads stack traces into gdb.txt
 In this example the client connects to our public testnet. To run validators on the testnet you would need to open udp ports `8000-10000`.
 
 ```bash
-NDEBUG=1 ./multinode-demo/bench-tps.sh --entrypoint devnet.solana.com:8001 --faucet devnet.solana.com:9900 --duration 60 --tx_count 50
+NDEBUG=1 ./multinode-demo/bench-tps.sh --entrypoint entrypoint.devnet.solana.com:8001 --faucet api.devnet.solana.com:9900 --duration 60 --tx_count 50
 ```
 
 You can observe the effects of your client's transactions on our [metrics dashboard](https://metrics.solana.com:3000/d/monitor/cluster-telemetry?var-testnet=devnet)

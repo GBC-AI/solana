@@ -4,7 +4,7 @@ import {
   SignatureResult,
   ParsedInstruction,
 } from "@solana/web3.js";
-import { lamportsToSolString } from "utils";
+import { SolBalance } from "utils";
 import { InstructionCard } from "../InstructionCard";
 import { Address } from "components/common/Address";
 import { CreateAccountInfo } from "./types";
@@ -14,50 +14,56 @@ export function CreateDetailsCard(props: {
   index: number;
   result: SignatureResult;
   info: CreateAccountInfo;
+  innerCards?: JSX.Element[];
+  childIndex?: number;
 }) {
-  const { ix, index, result, info } = props;
+  const { ix, index, result, info, innerCards, childIndex } = props;
 
   return (
     <InstructionCard
       ix={ix}
       index={index}
       result={result}
-      title="Create Account"
+      title="System Program: Create Account"
+      innerCards={innerCards}
+      childIndex={childIndex}
     >
       <tr>
         <td>Program</td>
-        <td className="text-lg-right">
+        <td className="text-lg-end">
           <Address pubkey={SystemProgram.programId} alignRight link />
         </td>
       </tr>
 
       <tr>
         <td>From Address</td>
-        <td className="text-lg-right">
+        <td className="text-lg-end">
           <Address pubkey={info.source} alignRight link />
         </td>
       </tr>
 
       <tr>
         <td>New Address</td>
-        <td className="text-lg-right">
+        <td className="text-lg-end">
           <Address pubkey={info.newAccount} alignRight link />
         </td>
       </tr>
 
       <tr>
         <td>Transfer Amount (SOL)</td>
-        <td className="text-lg-right">{lamportsToSolString(info.lamports)}</td>
+        <td className="text-lg-end">
+          <SolBalance lamports={info.lamports} />
+        </td>
       </tr>
 
       <tr>
-        <td>Allocated Space (Bytes)</td>
-        <td className="text-lg-right">{info.space}</td>
+        <td>Allocated Data Size</td>
+        <td className="text-lg-end">{info.space} byte(s)</td>
       </tr>
 
       <tr>
-        <td>Assigned Owner</td>
-        <td className="text-lg-right">
+        <td>Assigned Program Id</td>
+        <td className="text-lg-end">
           <Address pubkey={info.owner} alignRight link />
         </td>
       </tr>

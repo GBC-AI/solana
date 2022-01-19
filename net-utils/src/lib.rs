@@ -1,17 +1,23 @@
 //! The `net_utils` module assists with networking
-use log::*;
-use rand::{thread_rng, Rng};
-use socket2::{Domain, SockAddr, Socket, Type};
-use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
-use std::sync::mpsc::channel;
-use std::time::Duration;
-use url::Url;
+#![allow(clippy::integer_arithmetic)]
+use {
+    crossbeam_channel::unbounded,
+    log::*,
+    rand::{thread_rng, Rng},
+    socket2::{Domain, SockAddr, Socket, Type},
+    std::{
+        collections::{BTreeMap, HashSet},
+        io::{self, Read, Write},
+        net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
+        sync::{Arc, RwLock},
+        time::{Duration, Instant},
+    },
+    url::Url,
+};
 
 mod ip_echo_server;
-use ip_echo_server::IpEchoServerMessage;
 pub use ip_echo_server::{ip_echo_server, IpEchoServer, MAX_PORT_COUNT_PER_MESSAGE};
+use ip_echo_server::{IpEchoServerMessage, IpEchoServerResponse};
 
 /// A data type representing a public Udp socket
 pub struct UdpSocketPair {
@@ -22,16 +28,18 @@ pub struct UdpSocketPair {
 
 pub type PortRange = (u16, u16);
 
+pub(crate) const HEADER_LENGTH: usize = 4;
+pub(crate) const IP_ECHO_SERVER_RESPONSE_LENGTH: usize = HEADER_LENGTH + 23;
+
 fn ip_echo_server_request(
     ip_echo_server_addr: &SocketAddr,
     msg: IpEchoServerMessage,
-) -> Result<IpAddr, String> {
-    let mut data = Vec::new();
-
+) -> Result<IpEchoServerResponse, String> {
     let timeout = Duration::new(5, 0);
     TcpStream::connect_timeout(ip_echo_server_addr, timeout)
         .and_then(|mut stream| {
-            let mut bytes = vec![0; 4]; // Start with 4 null bytes to avoid looking like an HTTP GET/POST request
+            // Start with HEADER_LENGTH null bytes to avoid looking like an HTTP GET/POST request
+            let mut bytes = vec![0; HEADER_LENGTH];
 
             bytes.append(&mut bincode::serialize(&msg).expect("serialize IpEchoServerMessage"));
 
@@ -42,20 +50,23 @@ fn ip_echo_server_request(
             stream.set_read_timeout(Some(Duration::new(10, 0)))?;
             stream.write_all(&bytes)?;
             stream.shutdown(std::net::Shutdown::Write)?;
-            stream.read_to_end(&mut data)
+            let mut data = vec![0u8; IP_ECHO_SERVER_RESPONSE_LENGTH];
+            let _ = stream.read(&mut data[..])?;
+            Ok(data)
         })
-        .and_then(|_| {
+        .and_then(|data| {
             // It's common for users to accidentally confuse the validator's gossip port and JSON
             // RPC port.  Attempt to detect when this occurs by looking for the standard HTTP
             // response header and provide the user with a helpful error message
-            if data.len() < 4 {
+            if data.len() < HEADER_LENGTH {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("Response too short, received {} bytes", data.len()),
                 ));
             }
 
-            let response_header: String = data[0..4].iter().map(|b| *b as char).collect();
+            let response_header: String =
+                data[0..HEADER_LENGTH].iter().map(|b| *b as char).collect();
             if response_header != "\0\0\0\0" {
                 if response_header == "HTTP" {
                     let http_response = data.iter().map(|b| *b as char).collect::<String>();
@@ -76,7 +87,7 @@ fn ip_echo_server_request(
                 ));
             }
 
-            bincode::deserialize(&data[4..]).map_err(|err| {
+            bincode::deserialize(&data[HEADER_LENGTH..]).map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::Other,
                     format!("Failed to deserialize: {:?}", err),
@@ -89,7 +100,14 @@ fn ip_echo_server_request(
 /// Determine the public IP address of this machine by asking an ip_echo_server at the given
 /// address
 pub fn get_public_ip_addr(ip_echo_server_addr: &SocketAddr) -> Result<IpAddr, String> {
-    ip_echo_server_request(ip_echo_server_addr, IpEchoServerMessage::default())
+    let resp = ip_echo_server_request(ip_echo_server_addr, IpEchoServerMessage::default())?;
+    Ok(resp.address)
+}
+
+pub fn get_cluster_shred_version(ip_echo_server_addr: &SocketAddr) -> Result<u16, String> {
+    let resp = ip_echo_server_request(ip_echo_server_addr, IpEchoServerMessage::default())?;
+    resp.shred_version
+        .ok_or_else(|| String::from("IP echo server does not return a shred-version"))
 }
 
 // Checks if any of the provided TCP/UDP ports are not reachable by the machine at
@@ -105,7 +123,7 @@ fn do_verify_reachable_ports(
     udp_retry_count: usize,
 ) -> bool {
     info!(
-        "Checking that tcp ports {:?} from {:?}",
+        "Checking that tcp ports {:?} are reachable from {:?}",
         tcp_listeners, ip_echo_server_addr
     );
 
@@ -121,7 +139,7 @@ fn do_verify_reachable_ports(
 
     // Wait for a connection to open on each TCP port
     for (port, tcp_listener) in tcp_listeners {
-        let (sender, receiver) = channel();
+        let (sender, receiver) = unbounded();
         let listening_addr = tcp_listener.local_addr().unwrap();
         let thread_handle = std::thread::spawn(move || {
             debug!("Waiting for incoming connection on tcp/{}", port);
@@ -185,8 +203,7 @@ fn do_verify_reachable_ports(
                     .collect::<Vec<_>>(),
                 checked_ports_and_sockets
                     .iter()
-                    .map(|(_, sockets)| sockets)
-                    .flatten(),
+                    .flat_map(|(_, sockets)| sockets),
             );
 
             let _ = ip_echo_server_request(
@@ -196,21 +213,38 @@ fn do_verify_reachable_ports(
             .map_err(|err| warn!("ip_echo_server request failed: {}", err));
 
             // Spawn threads at once!
+            let reachable_ports = Arc::new(RwLock::new(HashSet::new()));
             let thread_handles: Vec<_> = checked_socket_iter
                 .map(|udp_socket| {
                     let port = udp_socket.local_addr().unwrap().port();
                     let udp_socket = udp_socket.try_clone().expect("Unable to clone udp socket");
+                    let reachable_ports = reachable_ports.clone();
                     std::thread::spawn(move || {
-                        let mut buf = [0; 1];
+                        let start = Instant::now();
+
                         let original_read_timeout = udp_socket.read_timeout().unwrap();
-                        udp_socket.set_read_timeout(Some(timeout)).unwrap();
-                        let recv_result = udp_socket.recv(&mut buf);
-                        debug!(
-                            "Waited for incoming datagram on udp/{}: {:?}",
-                            port, recv_result
-                        );
+                        udp_socket
+                            .set_read_timeout(Some(Duration::from_millis(250)))
+                            .unwrap();
+                        loop {
+                            if reachable_ports.read().unwrap().contains(&port)
+                                || Instant::now().duration_since(start) >= timeout
+                            {
+                                break;
+                            }
+
+                            let recv_result = udp_socket.recv(&mut [0; 1]);
+                            debug!(
+                                "Waited for incoming datagram on udp/{}: {:?}",
+                                port, recv_result
+                            );
+
+                            if recv_result.is_ok() {
+                                reachable_ports.write().unwrap().insert(port);
+                                break;
+                            }
+                        }
                         udp_socket.set_read_timeout(original_read_timeout).unwrap();
-                        recv_result.map(|_| port).ok()
                     })
                 })
                 .collect();
@@ -219,11 +253,11 @@ fn do_verify_reachable_ports(
             // Separate from the above by collect()-ing as an intermediately step to make the iterator
             // eager not lazy so that joining happens here at once after creating bunch of threads
             // at once.
-            let reachable_ports: BTreeSet<_> = thread_handles
-                .into_iter()
-                .filter_map(|t| t.join().unwrap())
-                .collect();
+            for thread in thread_handles {
+                thread.join().unwrap();
+            }
 
+            let reachable_ports = reachable_ports.read().unwrap().clone();
             if reachable_ports.len() == checked_ports.len() {
                 info!(
                     "checked udp ports: {:?}, reachable udp ports: {:?}",
@@ -326,7 +360,7 @@ pub fn is_host(string: String) -> Result<(), String> {
 pub fn parse_host_port(host_port: &str) -> Result<SocketAddr, String> {
     let addrs: Vec<_> = host_port
         .to_socket_addrs()
-        .map_err(|err| err.to_string())?
+        .map_err(|err| format!("Unable to resolve host {}: {}", host_port, err))?
         .collect();
     if addrs.is_empty() {
         Err(format!("Unable to resolve host: {}", host_port))
@@ -339,19 +373,23 @@ pub fn is_host_port(string: String) -> Result<(), String> {
     parse_host_port(&string).map(|_| ())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "ios"))]
 fn udp_socket(_reuseaddr: bool) -> io::Result<Socket> {
-    let sock = Socket::new(Domain::ipv4(), Type::dgram(), None)?;
+    let sock = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
     Ok(sock)
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "ios")))]
 fn udp_socket(reuseaddr: bool) -> io::Result<Socket> {
-    use nix::sys::socket::setsockopt;
-    use nix::sys::socket::sockopt::{ReuseAddr, ReusePort};
-    use std::os::unix::io::AsRawFd;
+    use {
+        nix::sys::socket::{
+            setsockopt,
+            sockopt::{ReuseAddr, ReusePort},
+        },
+        std::os::unix::io::AsRawFd,
+    };
 
-    let sock = Socket::new(Domain::ipv4(), Type::dgram(), None)?;
+    let sock = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
     let sock_fd = sock.as_raw_fd();
 
     if reuseaddr {
@@ -387,7 +425,7 @@ pub fn bind_in_range(ip_addr: IpAddr, range: PortRange) -> io::Result<(u16, UdpS
         let addr = SocketAddr::new(ip_addr, port);
 
         if sock.bind(&SockAddr::from(addr)).is_ok() {
-            let sock = sock.into_udp_socket();
+            let sock: UdpSocket = sock.into();
             return Result::Ok((sock.local_addr().unwrap().port(), sock));
         }
     }
@@ -449,8 +487,7 @@ pub fn bind_to(ip_addr: IpAddr, port: u16, reuseaddr: bool) -> io::Result<UdpSoc
 
     let addr = SocketAddr::new(ip_addr, port);
 
-    sock.bind(&SockAddr::from(addr))
-        .map(|_| sock.into_udp_socket())
+    sock.bind(&SockAddr::from(addr)).map(|_| sock.into())
 }
 
 // binds both a UdpSocket and a TcpListener
@@ -464,7 +501,7 @@ pub fn bind_common(
     let addr = SocketAddr::new(ip_addr, port);
     let sock_addr = SockAddr::from(addr);
     sock.bind(&sock_addr)
-        .and_then(|_| TcpListener::bind(&addr).map(|listener| (sock.into_udp_socket(), listener)))
+        .and_then(|_| TcpListener::bind(&addr).map(|listener| (sock.into(), listener)))
 }
 
 pub fn find_available_port_in_range(ip_addr: IpAddr, range: PortRange) -> io::Result<u16> {
@@ -492,8 +529,58 @@ pub fn find_available_port_in_range(ip_addr: IpAddr, range: PortRange) -> io::Re
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::net::Ipv4Addr;
+    use {super::*, std::net::Ipv4Addr};
+
+    #[test]
+    fn test_response_length() {
+        let resp = IpEchoServerResponse {
+            address: IpAddr::from([u16::MAX; 8]), // IPv6 variant
+            shred_version: Some(u16::MAX),
+        };
+        let resp_size = bincode::serialized_size(&resp).unwrap();
+        assert_eq!(
+            IP_ECHO_SERVER_RESPONSE_LENGTH,
+            HEADER_LENGTH + resp_size as usize
+        );
+    }
+
+    // Asserts that an old client can parse the response from a new server.
+    #[test]
+    fn test_backward_compat() {
+        let address = IpAddr::from([
+            525u16, 524u16, 523u16, 522u16, 521u16, 520u16, 519u16, 518u16,
+        ]);
+        let response = IpEchoServerResponse {
+            address,
+            shred_version: Some(42),
+        };
+        let mut data = vec![0u8; IP_ECHO_SERVER_RESPONSE_LENGTH];
+        bincode::serialize_into(&mut data[HEADER_LENGTH..], &response).unwrap();
+        data.truncate(HEADER_LENGTH + 20);
+        assert_eq!(
+            bincode::deserialize::<IpAddr>(&data[HEADER_LENGTH..]).unwrap(),
+            address
+        );
+    }
+
+    // Asserts that a new client can parse the response from an old server.
+    #[test]
+    fn test_forward_compat() {
+        let address = IpAddr::from([
+            525u16, 524u16, 523u16, 522u16, 521u16, 520u16, 519u16, 518u16,
+        ]);
+        let mut data = vec![0u8; IP_ECHO_SERVER_RESPONSE_LENGTH];
+        bincode::serialize_into(&mut data[HEADER_LENGTH..], &address).unwrap();
+        let response: Result<IpEchoServerResponse, _> =
+            bincode::deserialize(&data[HEADER_LENGTH..]);
+        assert_eq!(
+            response.unwrap(),
+            IpEchoServerResponse {
+                address,
+                shred_version: None,
+            }
+        );
+    }
 
     #[test]
     fn test_parse_port_or_addr() {
@@ -573,7 +660,7 @@ mod tests {
             3000
         );
         let port = find_available_port_in_range(ip_addr, (3000, 3050)).unwrap();
-        assert!(3000 <= port && port < 3050);
+        assert!((3000..3050).contains(&port));
 
         let _socket = bind_to(ip_addr, port, false).unwrap();
         find_available_port_in_range(ip_addr, (port, port + 1)).unwrap_err();
@@ -583,7 +670,7 @@ mod tests {
     fn test_bind_common_in_range() {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
         let (port, _sockets) = bind_common_in_range(ip_addr, (3100, 3150)).unwrap();
-        assert!(3100 <= port && port < 3150);
+        assert!((3100..3150).contains(&port));
 
         bind_common_in_range(ip_addr, (port, port + 1)).unwrap_err();
     }
@@ -595,14 +682,14 @@ mod tests {
         let (_server_port, (server_udp_socket, server_tcp_listener)) =
             bind_common_in_range(ip_addr, (3200, 3250)).unwrap();
 
-        let _runtime = ip_echo_server(server_tcp_listener);
+        let _runtime = ip_echo_server(server_tcp_listener, /*shred_version=*/ Some(42));
 
         let server_ip_echo_addr = server_udp_socket.local_addr().unwrap();
         assert_eq!(
             get_public_ip_addr(&server_ip_echo_addr),
             parse_host("127.0.0.1"),
         );
-
+        assert_eq!(get_cluster_shred_version(&server_ip_echo_addr), Ok(42));
         assert!(verify_reachable_ports(&server_ip_echo_addr, vec![], &[],));
     }
 
@@ -615,14 +702,14 @@ mod tests {
         let (client_port, (client_udp_socket, client_tcp_listener)) =
             bind_common_in_range(ip_addr, (3200, 3250)).unwrap();
 
-        let _runtime = ip_echo_server(server_tcp_listener);
+        let _runtime = ip_echo_server(server_tcp_listener, /*shred_version=*/ Some(65535));
 
         let ip_echo_server_addr = server_udp_socket.local_addr().unwrap();
         assert_eq!(
             get_public_ip_addr(&ip_echo_server_addr),
             parse_host("127.0.0.1"),
         );
-
+        assert_eq!(get_cluster_shred_version(&ip_echo_server_addr), Ok(65535));
         assert!(verify_reachable_ports(
             &ip_echo_server_addr,
             vec![(client_port, client_tcp_listener)],

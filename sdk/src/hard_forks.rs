@@ -3,8 +3,10 @@
 
 #![cfg(feature = "full")]
 
-use byteorder::{ByteOrder, LittleEndian};
-use solana_sdk::clock::Slot;
+use {
+    byteorder::{ByteOrder, LittleEndian},
+    solana_sdk::clock::Slot,
+};
 
 #[derive(Default, Clone, Debug, Deserialize, Serialize, AbiExample, PartialEq, Eq)]
 pub struct HardForks {
@@ -18,10 +20,11 @@ impl HardForks {
             .iter()
             .position(|(slot, _)| *slot == new_slot)
         {
-            self.hard_forks[i] = (new_slot, self.hard_forks[i].1 + 1);
+            self.hard_forks[i] = (new_slot, self.hard_forks[i].1.saturating_add(1));
         } else {
             self.hard_forks.push((new_slot, 1));
         }
+        #[allow(clippy::stable_sort_primitive)]
         self.hard_forks.sort();
     }
 

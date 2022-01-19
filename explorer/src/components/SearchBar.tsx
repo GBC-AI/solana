@@ -5,22 +5,28 @@ import Select, { InputActionMeta, ActionMeta, ValueType } from "react-select";
 import StateManager from "react-select";
 import {
   LOADER_IDS,
-  PROGRAM_IDS,
+  PROGRAM_NAME_BY_ID,
+  SPECIAL_IDS,
   SYSVAR_IDS,
-  ProgramName,
   LoaderName,
+  programLabel,
 } from "utils/tx";
-import { TokenRegistry } from "tokenRegistry";
 import { Cluster, useCluster } from "providers/cluster";
+import { useTokenRegistry } from "providers/mints/token-registry";
+import { TokenInfoMap } from "@solana/spl-token-registry";
 
 export function SearchBar() {
   const [search, setSearch] = React.useState("");
   const selectRef = React.useRef<StateManager<any> | null>(null);
   const history = useHistory();
   const location = useLocation();
-  const { cluster } = useCluster();
+  const { tokenRegistry } = useTokenRegistry();
+  const { cluster, clusterInfo } = useCluster();
 
-  const onChange = ({ pathname }: ValueType<any>, meta: ActionMeta<any>) => {
+  const onChange = (
+    { pathname }: ValueType<any, false>,
+    meta: ActionMeta<any>
+  ) => {
     if (meta.action === "select-option") {
       history.push({ ...location, pathname });
       setSearch("");
@@ -38,7 +44,12 @@ export function SearchBar() {
         <div className="col">
           <Select
             ref={(ref) => (selectRef.current = ref)}
-            options={buildOptions(search, cluster)}
+            options={buildOptions(
+              search,
+              cluster,
+              tokenRegistry,
+              clusterInfo?.epochInfo.epoch
+            )}
             noOptionsMessage={() => "No Results"}
             placeholder="Search for blocks, accounts, transactions, programs, and tokens"
             value={resetValue}
@@ -61,22 +72,14 @@ export function SearchBar() {
   );
 }
 
-const SEARCHABLE_PROGRAMS: ProgramName[] = [
-  "Break Solana Program",
-  "Config Program",
-  "Stake Program",
-  "System Program",
-  "Vote Program",
-  "SPL Token Program",
-];
-
-function buildProgramOptions(search: string) {
-  const matchedPrograms = Object.entries(PROGRAM_IDS).filter(
-    ([address, name]) => {
+function buildProgramOptions(search: string, cluster: Cluster) {
+  const matchedPrograms = Object.entries(PROGRAM_NAME_BY_ID).filter(
+    ([address]) => {
+      const name = programLabel(address, cluster);
+      if (!name) return false;
       return (
-        SEARCHABLE_PROGRAMS.includes(name) &&
-        (name.toLowerCase().includes(search.toLowerCase()) ||
-          address.includes(search))
+        name.toLowerCase().includes(search.toLowerCase()) ||
+        address.includes(search)
       );
     }
   );
@@ -93,7 +96,11 @@ function buildProgramOptions(search: string) {
   }
 }
 
-const SEARCHABLE_LOADERS: LoaderName[] = ["BPF Loader", "BPF Loader 2"];
+const SEARCHABLE_LOADERS: LoaderName[] = [
+  "BPF Loader",
+  "BPF Loader 2",
+  "BPF Upgradeable Loader",
+];
 
 function buildLoaderOptions(search: string) {
   const matchedLoaders = Object.entries(LOADER_IDS).filter(
@@ -140,8 +147,34 @@ function buildSysvarOptions(search: string) {
   }
 }
 
-function buildTokenOptions(search: string, cluster: Cluster) {
-  const matchedTokens = Object.entries(TokenRegistry.all(cluster)).filter(
+function buildSpecialOptions(search: string) {
+  const matchedSpecialIds = Object.entries(SPECIAL_IDS).filter(
+    ([address, name]) => {
+      return (
+        name.toLowerCase().includes(search.toLowerCase()) ||
+        address.includes(search)
+      );
+    }
+  );
+
+  if (matchedSpecialIds.length > 0) {
+    return {
+      label: "Accounts",
+      options: matchedSpecialIds.map(([id, name]) => ({
+        label: name,
+        value: [name, id],
+        pathname: "/address/" + id,
+      })),
+    };
+  }
+}
+
+function buildTokenOptions(
+  search: string,
+  cluster: Cluster,
+  tokenRegistry: TokenInfoMap
+) {
+  const matchedTokens = Array.from(tokenRegistry.entries()).filter(
     ([address, details]) => {
       const searchLower = search.toLowerCase();
       return (
@@ -164,13 +197,18 @@ function buildTokenOptions(search: string, cluster: Cluster) {
   }
 }
 
-function buildOptions(rawSearch: string, cluster: Cluster) {
+function buildOptions(
+  rawSearch: string,
+  cluster: Cluster,
+  tokenRegistry: TokenInfoMap,
+  currentEpoch?: number
+) {
   const search = rawSearch.trim();
   if (search.length === 0) return [];
 
   const options = [];
 
-  const programOptions = buildProgramOptions(search);
+  const programOptions = buildProgramOptions(search, cluster);
   if (programOptions) {
     options.push(programOptions);
   }
@@ -185,7 +223,12 @@ function buildOptions(rawSearch: string, cluster: Cluster) {
     options.push(sysvarOptions);
   }
 
-  const tokenOptions = buildTokenOptions(search, cluster);
+  const specialOptions = buildSpecialOptions(search);
+  if (specialOptions) {
+    options.push(specialOptions);
+  }
+
+  const tokenOptions = buildTokenOptions(search, cluster, tokenRegistry);
   if (tokenOptions) {
     options.push(tokenOptions);
   }
@@ -196,11 +239,24 @@ function buildOptions(rawSearch: string, cluster: Cluster) {
       options: [
         {
           label: `Slot #${search}`,
-          value: search,
+          value: [search],
           pathname: `/block/${search}`,
         },
       ],
     });
+
+    if (currentEpoch !== undefined && Number(search) <= currentEpoch + 1) {
+      options.push({
+        label: "Epoch",
+        options: [
+          {
+            label: `Epoch #${search}`,
+            value: [search],
+            pathname: `/epoch/${search}`,
+          },
+        ],
+      });
+    }
   }
 
   // Prefer nice suggestions over raw suggestions
@@ -214,7 +270,7 @@ function buildOptions(rawSearch: string, cluster: Cluster) {
         options: [
           {
             label: search,
-            value: search,
+            value: [search],
             pathname: "/address/" + search,
           },
         ],
@@ -225,7 +281,7 @@ function buildOptions(rawSearch: string, cluster: Cluster) {
         options: [
           {
             label: search,
-            value: search,
+            value: [search],
             pathname: "/tx/" + search,
           },
         ],

@@ -2,10 +2,17 @@
 
 extern crate test;
 
-use rand::{thread_rng, Rng};
-use solana_runtime::{accounts_db::AccountInfo, accounts_index::AccountsIndex};
-use solana_sdk::pubkey;
-use test::Bencher;
+use {
+    rand::{thread_rng, Rng},
+    solana_runtime::{
+        account_info::AccountInfo,
+        accounts_index::{
+            AccountSecondaryIndexes, AccountsIndex, ACCOUNTS_INDEX_CONFIG_FOR_BENCHMARKS,
+        },
+    },
+    solana_sdk::pubkey::{self, Pubkey},
+    test::Bencher,
+};
 
 #[bench]
 fn bench_accounts_index(bencher: &mut Bencher) {
@@ -15,10 +22,19 @@ fn bench_accounts_index(bencher: &mut Bencher) {
     const NUM_FORKS: u64 = 16;
 
     let mut reclaims = vec![];
-    let index = AccountsIndex::<AccountInfo>::default();
+    let index = AccountsIndex::<AccountInfo>::new(Some(ACCOUNTS_INDEX_CONFIG_FOR_BENCHMARKS));
     for f in 0..NUM_FORKS {
         for pubkey in pubkeys.iter().take(NUM_PUBKEYS) {
-            index.upsert(f, pubkey, AccountInfo::default(), &mut reclaims);
+            index.upsert(
+                f,
+                pubkey,
+                &Pubkey::default(),
+                &[],
+                &AccountSecondaryIndexes::default(),
+                AccountInfo::default(),
+                &mut reclaims,
+                false,
+            );
         }
     }
 
@@ -30,12 +46,16 @@ fn bench_accounts_index(bencher: &mut Bencher) {
             index.upsert(
                 fork,
                 &pubkeys[pubkey],
+                &Pubkey::default(),
+                &[],
+                &AccountSecondaryIndexes::default(),
                 AccountInfo::default(),
                 &mut reclaims,
+                false,
             );
             reclaims.clear();
         }
-        index.add_root(root);
+        index.add_root(root, false);
         root += 1;
         fork += 1;
     });

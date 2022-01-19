@@ -43,8 +43,10 @@ async function fetch(dispatch: Dispatch, cluster: Cluster, url: string) {
   dispatch(Status.Connecting);
 
   try {
-    const connection = new Connection(url, "max");
-    const supply = (await connection.getSupply()).value;
+    const connection = new Connection(url, "finalized");
+    const supply = (
+      await connection.getSupply({ excludeNonCirculatingAccountsList: true })
+    ).value;
 
     // Update state if still connecting
     dispatch((state) => {

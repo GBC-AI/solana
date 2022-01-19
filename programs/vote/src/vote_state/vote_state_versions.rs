@@ -1,5 +1,4 @@
-use super::*;
-use crate::vote_state::vote_state_0_23_5::VoteState0_23_5;
+use {super::*, crate::vote_state::vote_state_0_23_5::VoteState0_23_5};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum VoteStateVersions {
@@ -8,6 +7,10 @@ pub enum VoteStateVersions {
 }
 
 impl VoteStateVersions {
+    pub fn new_current(vote_state: VoteState) -> Self {
+        Self::Current(Box::new(vote_state))
+    }
+
     pub fn convert_to_current(self) -> VoteState {
         match self {
             VoteStateVersions::V0_23_5(state) => {

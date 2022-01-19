@@ -18,6 +18,7 @@ export const SAMPLE_HISTORY_HOURS = 6;
 export const PERFORMANCE_SAMPLE_INTERVAL = 60000;
 export const TRANSACTION_COUNT_INTERVAL = 5000;
 export const EPOCH_INFO_INTERVAL = 2000;
+export const BLOCK_TIME_INTERVAL = 5000;
 export const LOADING_TIMEOUT = 10000;
 
 export enum ClusterStatsStatus {
@@ -73,6 +74,13 @@ const PerformanceContext = React.createContext<PerformanceState | undefined>(
 );
 
 type Props = { children: React.ReactNode };
+
+function getConnection(url: string): Connection | undefined {
+  try {
+    return new Connection(url);
+  } catch (error) {}
+}
+
 export function SolanaClusterStatsProvider({ children }: Props) {
   const { cluster, url } = useCluster();
   const [active, setActive] = React.useState(false);
@@ -88,7 +96,11 @@ export function SolanaClusterStatsProvider({ children }: Props) {
   React.useEffect(() => {
     if (!active || !url) return;
 
-    const connection = new Connection(url);
+    const connection = getConnection(url);
+
+    if (!connection) return;
+
+    let lastSlot: number | null = null;
 
     const getPerformanceSamples = async () => {
       try {
@@ -114,14 +126,16 @@ export function SolanaClusterStatsProvider({ children }: Props) {
         if (cluster !== Cluster.Custom) {
           reportError(error, { url });
         }
-        dispatchPerformanceInfo({
-          type: PerformanceInfoActionType.SetError,
-          data: error.toString(),
-        });
-        dispatchDashboardInfo({
-          type: DashboardInfoActionType.SetError,
-          data: error.toString(),
-        });
+        if (error instanceof Error) {
+          dispatchPerformanceInfo({
+            type: PerformanceInfoActionType.SetError,
+            data: error.toString(),
+          });
+          dispatchDashboardInfo({
+            type: DashboardInfoActionType.SetError,
+            data: error.toString(),
+          });
+        }
         setActive(false);
       }
     };
@@ -137,10 +151,12 @@ export function SolanaClusterStatsProvider({ children }: Props) {
         if (cluster !== Cluster.Custom) {
           reportError(error, { url });
         }
-        dispatchPerformanceInfo({
-          type: PerformanceInfoActionType.SetError,
-          data: error.toString(),
-        });
+        if (error instanceof Error) {
+          dispatchPerformanceInfo({
+            type: PerformanceInfoActionType.SetError,
+            data: error.toString(),
+          });
+        }
         setActive(false);
       }
     };
@@ -148,6 +164,7 @@ export function SolanaClusterStatsProvider({ children }: Props) {
     const getEpochInfo = async () => {
       try {
         const epochInfo = await connection.getEpochInfo();
+        lastSlot = epochInfo.absoluteSlot;
         dispatchDashboardInfo({
           type: DashboardInfoActionType.SetEpochInfo,
           data: epochInfo,
@@ -156,11 +173,32 @@ export function SolanaClusterStatsProvider({ children }: Props) {
         if (cluster !== Cluster.Custom) {
           reportError(error, { url });
         }
-        dispatchDashboardInfo({
-          type: DashboardInfoActionType.SetError,
-          data: error.toString(),
-        });
+        if (error instanceof Error) {
+          dispatchDashboardInfo({
+            type: DashboardInfoActionType.SetError,
+            data: error.toString(),
+          });
+        }
         setActive(false);
+      }
+    };
+
+    const getBlockTime = async () => {
+      if (lastSlot) {
+        try {
+          const blockTime = await connection.getBlockTime(lastSlot);
+          if (blockTime !== null) {
+            dispatchDashboardInfo({
+              type: DashboardInfoActionType.SetLastBlockTime,
+              data: {
+                slot: lastSlot,
+                blockTime: blockTime * 1000,
+              },
+            });
+          }
+        } catch (error) {
+          // let this fail gracefully
+        }
       }
     };
 
@@ -173,15 +211,20 @@ export function SolanaClusterStatsProvider({ children }: Props) {
       TRANSACTION_COUNT_INTERVAL
     );
     const epochInfoInterval = setInterval(getEpochInfo, EPOCH_INFO_INTERVAL);
+    const blockTimeInterval = setInterval(getBlockTime, BLOCK_TIME_INTERVAL);
 
     getPerformanceSamples();
     getTransactionCount();
-    getEpochInfo();
+    (async () => {
+      await getEpochInfo();
+      await getBlockTime();
+    })();
 
     return () => {
       clearInterval(performanceInterval);
       clearInterval(transactionCountInterval);
       clearInterval(epochInfoInterval);
+      clearInterval(blockTimeInterval);
     };
   }, [active, cluster, url]);
 

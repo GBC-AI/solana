@@ -71,10 +71,13 @@
 //! ```
 //! time: 4007, tip converged: 10, trunk id: 3830, trunk time: 3827, trunk converged 100, trunk height 348
 //! ```
+#![allow(clippy::integer_arithmetic)]
 
 extern crate rand;
-use rand::{thread_rng, Rng};
-use std::collections::{HashMap, VecDeque};
+use {
+    rand::{thread_rng, Rng},
+    std::collections::{HashMap, VecDeque},
+};
 
 #[derive(Clone, Default, Debug, Hash, Eq, PartialEq)]
 pub struct Fork {
@@ -187,10 +190,10 @@ impl Tower {
             .delayed_votes
             .iter()
             .enumerate()
-            .map(|(i, v)| (*scores.get(&v).unwrap_or(&0), v.time, i))
+            .map(|(i, v)| (*scores.get(v).unwrap_or(&0), v.time, i))
             .collect();
         // highest score, latest vote first
-        best.sort();
+        best.sort_unstable();
         if self.parasite {
             best.reverse();
         }
@@ -541,7 +544,7 @@ fn test_with_partitions(
             let mut scores: HashMap<Vote, usize> = HashMap::new();
             towers.iter().for_each(|n| {
                 n.delayed_votes.iter().for_each(|v| {
-                    *scores.entry(v.clone()).or_insert(0) += n.score(&v, &fork_tree);
+                    *scores.entry(v.clone()).or_insert(0) += n.score(v, &fork_tree);
                 })
             });
             for tower in towers.iter_mut() {

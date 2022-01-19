@@ -1,11 +1,11 @@
-//! @brief Example Rust-based BPF program that supports the deprecated loader
+//! Example Rust-based BPF program that supports the deprecated loader
 
 #![allow(unreachable_code)]
 
 extern crate solana_program;
 use solana_program::{
     account_info::AccountInfo, bpf_loader, entrypoint_deprecated,
-    entrypoint_deprecated::ProgramResult, info, log::*, pubkey::Pubkey,
+    entrypoint_deprecated::ProgramResult, log::*, msg, pubkey::Pubkey,
 };
 
 #[derive(Debug, PartialEq)]
@@ -20,13 +20,20 @@ fn return_sstruct() -> SStruct {
     SStruct { x: 1, y: 2, z: 3 }
 }
 
+#[no_mangle]
+fn custom_panic(info: &core::panic::PanicInfo<'_>) {
+    // Full panic reporting
+    msg!(&format!("{}", info));
+}
+
 entrypoint_deprecated!(process_instruction);
+#[allow(clippy::unnecessary_wraps)]
 fn process_instruction(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    info!("Program identifier:");
+    msg!("Program identifier:");
     program_id.log();
 
     assert!(!bpf_loader::check_id(program_id));
@@ -34,7 +41,7 @@ fn process_instruction(
     // Log the provided account keys and instruction input data.  In the case of
     // the no-op program, no account keys or input data are expected but real
     // programs will have specific requirements so they can do their work.
-    info!("Account keys and instruction input data:");
+    msg!("Account keys and instruction input data:");
     sol_log_params(accounts, instruction_data);
 
     {
@@ -45,7 +52,7 @@ fn process_instruction(
         let result_str = std::str::from_utf8(&sparkle_heart).unwrap();
         assert_eq!(4, result_str.len());
         assert_eq!("💖", result_str);
-        info!(result_str);
+        msg!(result_str);
     }
 
     {

@@ -1,15 +1,16 @@
-use crate::id;
-use crate::{ConfigKeys, ConfigState};
-use solana_sdk::{
-    instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
-    system_instruction,
+use {
+    crate::{id, ConfigKeys, ConfigState},
+    solana_sdk::{
+        instruction::{AccountMeta, Instruction},
+        pubkey::Pubkey,
+        system_instruction,
+    },
 };
 
 fn initialize_account<T: ConfigState>(config_pubkey: &Pubkey) -> Instruction {
     let account_metas = vec![AccountMeta::new(*config_pubkey, true)];
     let account_data = (ConfigKeys { keys: vec![] }, T::default());
-    Instruction::new(id(), &account_data, account_metas)
+    Instruction::new_with_bincode(id(), &account_data, account_metas)
 }
 
 /// Create a new, empty configuration account
@@ -46,5 +47,5 @@ pub fn store<T: ConfigState>(
         }
     }
     let account_data = (ConfigKeys { keys }, data);
-    Instruction::new(id(), &account_data, account_metas)
+    Instruction::new_with_bincode(id(), &account_data, account_metas)
 }

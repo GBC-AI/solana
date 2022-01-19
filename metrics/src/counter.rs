@@ -1,8 +1,13 @@
-use crate::metrics::submit_counter;
-use log::*;
-use solana_sdk::timing;
-use std::env;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use {
+    crate::metrics::submit_counter,
+    log::*,
+    solana_sdk::timing,
+    std::{
+        env,
+        sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+        time::SystemTime,
+    },
+};
 
 const DEFAULT_LOG_RATE: usize = 1000;
 // Submit a datapoint every second by default
@@ -23,7 +28,7 @@ pub struct Counter {
 pub struct CounterPoint {
     pub name: &'static str,
     pub count: i64,
-    pub timestamp: u64,
+    pub timestamp: SystemTime,
 }
 
 impl CounterPoint {
@@ -32,7 +37,7 @@ impl CounterPoint {
         CounterPoint {
             name,
             count: 0,
-            timestamp: 0,
+            timestamp: std::time::UNIX_EPOCH,
         }
     }
 }
@@ -164,6 +169,7 @@ impl Counter {
         }
     }
     pub fn init(&mut self) {
+        #![allow(deprecated)]
         self.lograte
             .compare_and_swap(0, Self::default_log_rate(), Ordering::Relaxed);
         self.metricsrate
@@ -188,6 +194,7 @@ impl Counter {
         }
 
         let lastlog = self.lastlog.load(Ordering::Relaxed);
+        #[allow(deprecated)]
         let prev = self
             .lastlog
             .compare_and_swap(lastlog, counts, Ordering::Relaxed);
@@ -196,7 +203,7 @@ impl Counter {
             let counter = CounterPoint {
                 name: self.name,
                 count: counts as i64 - lastlog as i64,
-                timestamp: now,
+                timestamp: SystemTime::now(),
             };
             submit_counter(counter, level, bucket);
         }
@@ -204,13 +211,15 @@ impl Counter {
 }
 #[cfg(test)]
 mod tests {
-    use crate::counter::{Counter, DEFAULT_LOG_RATE, DEFAULT_METRICS_RATE};
-    use log::Level;
-    use log::*;
-    use serial_test_derive::serial;
-    use std::env;
-    use std::sync::atomic::Ordering;
-    use std::sync::{Once, RwLock};
+    use {
+        crate::counter::{Counter, DEFAULT_LOG_RATE, DEFAULT_METRICS_RATE},
+        log::{Level, *},
+        serial_test::serial,
+        std::{
+            env,
+            sync::{atomic::Ordering, Once, RwLock},
+        },
+    };
 
     fn get_env_lock() -> &'static RwLock<()> {
         static mut ENV_LOCK: Option<RwLock<()>> = None;
@@ -220,16 +229,30 @@ mod tests {
             INIT_HOOK.call_once(|| {
                 ENV_LOCK = Some(RwLock::new(()));
             });
-            &ENV_LOCK.as_ref().unwrap()
+            ENV_LOCK.as_ref().unwrap()
         }
+    }
+
+    /// Try to initialize the logger with a filter level of INFO.
+    ///
+    /// Incrementing a counter only happens if the logger is configured for the
+    /// given log level, so the tests need an INFO logger to pass.
+    fn try_init_logger_at_level_info() -> Result<(), log::SetLoggerError> {
+        // Use ::new() to configure the logger manually, instead of using the
+        // default of reading the RUST_LOG environment variable. Set is_test to
+        // print to stdout captured by the test runner, instead of polluting the
+        // test runner output.
+        let module_limit = None;
+        env_logger::Builder::new()
+            .filter(module_limit, log::LevelFilter::Info)
+            .is_test(true)
+            .try_init()
     }
 
     #[test]
     #[serial]
     fn test_counter() {
-        env_logger::Builder::from_env(env_logger::Env::new().default_filter_or("solana=info"))
-            .try_init()
-            .ok();
+        try_init_logger_at_level_info().ok();
         let _readlock = get_env_lock().read();
         static mut COUNTER: Counter = create_counter!("test", 1000, 1);
         unsafe {
@@ -259,9 +282,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_metricsrate() {
-        env_logger::Builder::from_env(env_logger::Env::new().default_filter_or("solana=info"))
-            .try_init()
-            .ok();
+        try_init_logger_at_level_info().ok();
         let _readlock = get_env_lock().read();
         env::remove_var("SOLANA_DEFAULT_METRICS_RATE");
         static mut COUNTER: Counter = create_counter!("test", 1000, 0);
@@ -277,9 +298,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_metricsrate_env() {
-        env_logger::Builder::from_env(env_logger::Env::new().default_filter_or("solana=info"))
-            .try_init()
-            .ok();
+        try_init_logger_at_level_info().ok();
         let _writelock = get_env_lock().write();
         env::set_var("SOLANA_DEFAULT_METRICS_RATE", "50");
         static mut COUNTER: Counter = create_counter!("test", 1000, 0);
@@ -303,9 +322,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_lograte() {
-        env_logger::Builder::from_env(env_logger::Env::new().default_filter_or("solana=info"))
-            .try_init()
-            .ok();
+        try_init_logger_at_level_info().ok();
         let _readlock = get_env_lock().read();
         assert_eq!(
             Counter::default_log_rate(),
@@ -324,9 +341,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_lograte_env() {
-        env_logger::Builder::from_env(env_logger::Env::new().default_filter_or("solana=info"))
-            .try_init()
-            .ok();
+        try_init_logger_at_level_info().ok();
         assert_ne!(DEFAULT_LOG_RATE, 0);
         let _writelock = get_env_lock().write();
         static mut COUNTER: Counter = create_counter!("test_lograte_env", 0, 1);

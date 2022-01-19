@@ -6,8 +6,16 @@ extern crate test;
 extern crate solana_bpf_loader_program;
 
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
+use solana_bpf_loader_program::{
+    create_vm, serialization::serialize_parameters, syscalls::register_syscalls, BpfError,
+    ThisInstructionMeter,
+};
 use solana_measure::measure::Measure;
-use solana_rbpf::vm::{EbpfVm, InstructionMeter};
+use solana_program_runtime::invoke_context::with_mock_invoke_context;
+use solana_rbpf::{
+    elf::Executable,
+    vm::{Config, InstructionMeter, SyscallRegistry},
+};
 use solana_runtime::{
     bank::Bank,
     bank_client::BankClient,
@@ -15,17 +23,15 @@ use solana_runtime::{
     loader_utils::load_program,
 };
 use solana_sdk::{
-    account::Account,
     bpf_loader,
     client::SyncClient,
     entrypoint::SUCCESS,
     instruction::{AccountMeta, Instruction},
     message::Message,
-    process_instruction::{ComputeMeter, InvokeContext, MockInvokeContext},
     pubkey::Pubkey,
     signature::{Keypair, Signer},
 };
-use std::{cell::RefCell, env, fs::File, io::Read, mem, path::PathBuf, rc::Rc, sync::Arc};
+use std::{env, fs::File, io::Read, mem, path::PathBuf, sync::Arc};
 use test::Bencher;
 
 /// BPF program file extension
@@ -71,9 +77,13 @@ fn bench_program_create_executable(bencher: &mut Bencher) {
     let elf = load_elf("bench_alu").unwrap();
 
     bencher.iter(|| {
-        let _ =
-            EbpfVm::<solana_bpf_loader_program::BPFError>::create_executable_from_elf(&elf, None)
-                .unwrap();
+        let _ = Executable::<BpfError, ThisInstructionMeter>::from_elf(
+            &elf,
+            None,
+            Config::default(),
+            SyscallRegistry::default(),
+        )
+        .unwrap();
     });
 }
 
@@ -86,69 +96,70 @@ fn bench_program_alu(bencher: &mut Bencher) {
         .write_u64::<LittleEndian>(ARMSTRONG_LIMIT)
         .unwrap();
     inner_iter.write_u64::<LittleEndian>(0).unwrap();
-    let loader_id = bpf_loader::id();
-    let mut invoke_context = MockInvokeContext::default();
-
     let elf = load_elf("bench_alu").unwrap();
-    let executable =
-        EbpfVm::<solana_bpf_loader_program::BPFError>::create_executable_from_elf(&elf, None)
-            .unwrap();
-    let (mut vm, _) = solana_bpf_loader_program::create_vm(
-        &loader_id,
-        executable.as_ref(),
-        &[],
-        &mut invoke_context,
-    )
-    .unwrap();
+    let loader_id = bpf_loader::id();
+    with_mock_invoke_context(loader_id, 10000001, |invoke_context| {
+        invoke_context
+            .get_compute_meter()
+            .borrow_mut()
+            .mock_set_remaining(std::i64::MAX as u64);
+        let mut executable = Executable::<BpfError, ThisInstructionMeter>::from_elf(
+            &elf,
+            None,
+            Config::default(),
+            register_syscalls(invoke_context).unwrap(),
+        )
+        .unwrap();
+        Executable::<BpfError, ThisInstructionMeter>::jit_compile(&mut executable).unwrap();
+        let compute_meter = invoke_context.get_compute_meter();
+        let mut instruction_meter = ThisInstructionMeter { compute_meter };
+        let mut vm = create_vm(&executable, &mut inner_iter, invoke_context, &[]).unwrap();
 
-    println!("Interpreted:");
-    assert_eq!(
-        SUCCESS,
-        vm.execute_program(&mut inner_iter, &[], &[]).unwrap()
-    );
-    assert_eq!(ARMSTRONG_LIMIT, LittleEndian::read_u64(&inner_iter));
-    assert_eq!(
-        ARMSTRONG_EXPECTED,
-        LittleEndian::read_u64(&inner_iter[mem::size_of::<u64>()..])
-    );
+        println!("Interpreted:");
+        assert_eq!(
+            SUCCESS,
+            vm.execute_program_interpreted(&mut instruction_meter)
+                .unwrap()
+        );
+        assert_eq!(ARMSTRONG_LIMIT, LittleEndian::read_u64(&inner_iter));
+        assert_eq!(
+            ARMSTRONG_EXPECTED,
+            LittleEndian::read_u64(&inner_iter[mem::size_of::<u64>()..])
+        );
 
-    bencher.iter(|| {
-        vm.execute_program(&mut inner_iter, &[], &[]).unwrap();
+        bencher.iter(|| {
+            vm.execute_program_interpreted(&mut instruction_meter)
+                .unwrap();
+        });
+        let instructions = vm.get_total_instruction_count();
+        let summary = bencher.bench(|_bencher| {}).unwrap();
+        println!("  {:?} instructions", instructions);
+        println!("  {:?} ns/iter median", summary.median as u64);
+        assert!(0f64 != summary.median);
+        let mips = (instructions * (ns_per_s / summary.median as u64)) / one_million;
+        println!("  {:?} MIPS", mips);
+        println!("{{ \"type\": \"bench\", \"name\": \"bench_program_alu_interpreted_mips\", \"median\": {:?}, \"deviation\": 0 }}", mips);
+
+        println!("JIT to native:");
+        assert_eq!(
+            SUCCESS,
+            vm.execute_program_jit(&mut instruction_meter).unwrap()
+        );
+        assert_eq!(ARMSTRONG_LIMIT, LittleEndian::read_u64(&inner_iter));
+        assert_eq!(
+            ARMSTRONG_EXPECTED,
+            LittleEndian::read_u64(&inner_iter[mem::size_of::<u64>()..])
+        );
+
+        bencher.iter(|| vm.execute_program_jit(&mut instruction_meter).unwrap());
+        let summary = bencher.bench(|_bencher| {}).unwrap();
+        println!("  {:?} instructions", instructions);
+        println!("  {:?} ns/iter median", summary.median as u64);
+        assert!(0f64 != summary.median);
+        let mips = (instructions * (ns_per_s / summary.median as u64)) / one_million;
+        println!("  {:?} MIPS", mips);
+        println!("{{ \"type\": \"bench\", \"name\": \"bench_program_alu_jit_to_native_mips\", \"median\": {:?}, \"deviation\": 0 }}", mips);
     });
-    let instructions = vm.get_total_instruction_count();
-    let summary = bencher.bench(|_bencher| {}).unwrap();
-    println!("  {:?} instructions", instructions);
-    println!("  {:?} ns/iter median", summary.median as u64);
-    assert!(0f64 != summary.median);
-    let mips = (instructions * (ns_per_s / summary.median as u64)) / one_million;
-    println!("  {:?} MIPS", mips);
-    println!("{{ \"type\": \"bench\", \"name\": \"bench_program_alu_interpreted_mips\", \"median\": {:?}, \"deviation\": 0 }}", mips);
-
-    // JIT disabled until address translation support is added
-    // println!("JIT to native:");
-    // vm.jit_compile().unwrap();
-    // unsafe {
-    //     assert_eq!(
-    //         0, /*success*/
-    //         vm.execute_program_jit(&mut inner_iter).unwrap()
-    //     );
-    // }
-    // assert_eq!(ARMSTRONG_LIMIT, LittleEndian::read_u64(&inner_iter));
-    // assert_eq!(
-    //     ARMSTRONG_EXPECTED,
-    //     LittleEndian::read_u64(&inner_iter[mem::size_of::<u64>()..])
-    // );
-
-    // bencher.iter(|| unsafe {
-    //     vm.execute_program_jit(&mut inner_iter).unwrap();
-    // });
-    // let summary = bencher.bench(|_bencher| {}).unwrap();
-    // println!("  {:?} instructions", instructions);
-    // println!("  {:?} ns/iter median", summary.median as u64);
-    // assert!(0f64 != summary.median);
-    // let mips = (instructions * (ns_per_s / summary.median as u64)) / one_million;
-    // println!("  {:?} MIPS", mips);
-    // println!("{{ \"type\": \"bench\", \"name\": \"bench_program_alu_jit_to_native_mips\", \"median\": {:?}, \"deviation\": 0 }}", mips);
 }
 
 #[bench]
@@ -158,9 +169,9 @@ fn bench_program_execute_noop(bencher: &mut Bencher) {
         mint_keypair,
         ..
     } = create_genesis_config(50);
-    let mut bank = Bank::new(&genesis_config);
+    let mut bank = Bank::new_for_benches(&genesis_config);
     let (name, id, entrypoint) = solana_bpf_loader_program!();
-    bank.add_builtin(&name, id, entrypoint);
+    bank.add_builtin(&name, &id, entrypoint);
     let bank = Arc::new(bank);
     let bank_client = BankClient::new_shared(&bank);
 
@@ -170,7 +181,8 @@ fn bench_program_execute_noop(bencher: &mut Bencher) {
     let mint_pubkey = mint_keypair.pubkey();
     let account_metas = vec![AccountMeta::new(mint_pubkey, true)];
 
-    let instruction = Instruction::new(invoke_program_id, &[u8::MAX, 0, 0, 0], account_metas);
+    let instruction =
+        Instruction::new_with_bincode(invoke_program_id, &[u8::MAX, 0, 0, 0], account_metas);
     let message = Message::new(&[instruction], Some(&mint_pubkey));
 
     bank_client
@@ -186,77 +198,98 @@ fn bench_program_execute_noop(bencher: &mut Bencher) {
 }
 
 #[bench]
-fn bench_instruction_count_tuner(_bencher: &mut Bencher) {
-    const BUDGET: u64 = 200_000;
+fn bench_create_vm(bencher: &mut Bencher) {
+    let elf = load_elf("noop").unwrap();
     let loader_id = bpf_loader::id();
-    let mut invoke_context = MockInvokeContext::default();
-    invoke_context.compute_meter.remaining = BUDGET;
-    let compute_meter = invoke_context.get_compute_meter();
+    with_mock_invoke_context(loader_id, 10000001, |invoke_context| {
+        const BUDGET: u64 = 200_000;
+        invoke_context
+            .get_compute_meter()
+            .borrow_mut()
+            .mock_set_remaining(BUDGET);
 
-    let elf = load_elf("tuner").unwrap();
-    let executable =
-        EbpfVm::<solana_bpf_loader_program::BPFError>::create_executable_from_elf(&elf, None)
+        // Serialize account data
+        let (mut serialized, account_lengths) = serialize_parameters(
+            invoke_context.transaction_context,
+            invoke_context
+                .transaction_context
+                .get_current_instruction_context()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let executable = Executable::<BpfError, ThisInstructionMeter>::from_elf(
+            &elf,
+            None,
+            Config::default(),
+            register_syscalls(invoke_context).unwrap(),
+        )
+        .unwrap();
+
+        bencher.iter(|| {
+            let _ = create_vm(
+                &executable,
+                serialized.as_slice_mut(),
+                invoke_context,
+                &account_lengths,
+            )
             .unwrap();
-    let (mut vm, _) = solana_bpf_loader_program::create_vm(
-        &loader_id,
-        executable.as_ref(),
-        &[],
-        &mut invoke_context,
-    )
-    .unwrap();
-    let instruction_meter = MockInstructionMeter { compute_meter };
-
-    let mut measure = Measure::start("tune");
-
-    let accounts = [RefCell::new(Account::new(
-        1,
-        10000001,
-        &solana_sdk::pubkey::new_rand(),
-    ))];
-    let keys = [solana_sdk::pubkey::new_rand()];
-    let keyed_accounts: Vec<_> = keys
-        .iter()
-        .zip(&accounts)
-        .map(|(key, account)| solana_sdk::keyed_account::KeyedAccount::new(&key, false, &account))
-        .collect();
-    let instruction_data = vec![0u8];
-
-    // Serialize account data
-    let mut serialized = solana_bpf_loader_program::serialization::serialize_parameters(
-        &bpf_loader::id(),
-        &solana_sdk::pubkey::new_rand(),
-        &keyed_accounts,
-        &instruction_data,
-    )
-    .unwrap();
-
-    let _ = vm.execute_program_metered(&mut serialized, &[], &[], instruction_meter.clone());
-    measure.stop();
-    assert_eq!(
-        0,
-        instruction_meter.get_remaining(),
-        "Tuner must consume the whole budget"
-    );
-    println!(
-        "{:?} compute units took {:?} us ({:?} instructions)",
-        BUDGET - instruction_meter.get_remaining(),
-        measure.as_us(),
-        vm.get_total_instruction_count(),
-    );
+        });
+    });
 }
 
-/// Passed to the VM to enforce the compute budget
-#[derive(Clone)]
-struct MockInstructionMeter {
-    compute_meter: Rc<RefCell<dyn ComputeMeter>>,
-}
-impl InstructionMeter for MockInstructionMeter {
-    fn consume(&mut self, amount: u64) {
-        // 1 to 1 instruction to compute unit mapping
-        // ignore error, Ebpf will bail if exceeded
-        let _ = self.compute_meter.borrow_mut().consume(amount);
-    }
-    fn get_remaining(&self) -> u64 {
-        self.compute_meter.borrow().get_remaining()
-    }
+#[bench]
+fn bench_instruction_count_tuner(_bencher: &mut Bencher) {
+    let elf = load_elf("tuner").unwrap();
+    let loader_id = bpf_loader::id();
+    with_mock_invoke_context(loader_id, 10000001, |invoke_context| {
+        const BUDGET: u64 = 200_000;
+        invoke_context
+            .get_compute_meter()
+            .borrow_mut()
+            .mock_set_remaining(BUDGET);
+
+        // Serialize account data
+        let (mut serialized, account_lengths) = serialize_parameters(
+            invoke_context.transaction_context,
+            invoke_context
+                .transaction_context
+                .get_current_instruction_context()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let executable = Executable::<BpfError, ThisInstructionMeter>::from_elf(
+            &elf,
+            None,
+            Config::default(),
+            register_syscalls(invoke_context).unwrap(),
+        )
+        .unwrap();
+        let compute_meter = invoke_context.get_compute_meter();
+        let mut instruction_meter = ThisInstructionMeter { compute_meter };
+        let mut vm = create_vm(
+            &executable,
+            serialized.as_slice_mut(),
+            invoke_context,
+            &account_lengths,
+        )
+        .unwrap();
+
+        let mut measure = Measure::start("tune");
+        let _ = vm.execute_program_interpreted(&mut instruction_meter);
+        measure.stop();
+
+        assert_eq!(
+            0,
+            instruction_meter.get_remaining(),
+            "Tuner must consume the whole budget"
+        );
+        println!(
+            "{:?} compute units took {:?} us ({:?} instructions)",
+            BUDGET - instruction_meter.get_remaining(),
+            measure.as_us(),
+            vm.get_total_instruction_count(),
+        );
+    });
 }

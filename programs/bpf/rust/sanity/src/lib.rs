@@ -1,10 +1,10 @@
-//! @brief Example Rust-based BPF sanity program that prints out the parameters passed to it
+//! Example Rust-based BPF sanity program that prints out the parameters passed to it
 
 #![allow(unreachable_code)]
 
 extern crate solana_program;
 use solana_program::{
-    account_info::AccountInfo, bpf_loader, entrypoint, entrypoint::ProgramResult, info, log::*,
+    account_info::AccountInfo, bpf_loader, entrypoint, entrypoint::ProgramResult, log::*, msg,
     pubkey::Pubkey,
 };
 
@@ -21,12 +21,13 @@ fn return_sstruct() -> SStruct {
 }
 
 entrypoint!(process_instruction);
-fn process_instruction(
+#[allow(clippy::unnecessary_wraps)]
+pub fn process_instruction(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    info!("Program identifier:");
+    msg!("Program identifier:");
     program_id.log();
 
     assert!(!bpf_loader::check_id(program_id));
@@ -34,7 +35,7 @@ fn process_instruction(
     // Log the provided account keys and instruction input data.  In the case of
     // the no-op program, no account keys or input data are expected but real
     // programs will have specific requirements so they can do their work.
-    info!("Account keys and instruction input data:");
+    msg!("Account keys and instruction input data:");
     sol_log_params(accounts, instruction_data);
 
     {
@@ -45,7 +46,7 @@ fn process_instruction(
         let result_str = std::str::from_utf8(&sparkle_heart).unwrap();
         assert_eq!(4, result_str.len());
         assert_eq!("💖", result_str);
-        info!(result_str);
+        msg!(result_str);
     }
 
     {
@@ -59,6 +60,15 @@ fn process_instruction(
         // Test - arch config
         #[cfg(not(target_arch = "bpf"))]
         panic!();
+    }
+
+    {
+        // Test - float math functions
+        let zero = accounts[0].try_borrow_mut_data()?.len() as f64;
+        let num = zero + 8.0f64;
+        let num = num.powf(0.333f64);
+        // check that the result is in a correct interval close to 1.998614185980905
+        assert!(1.9986f64 < num && num < 2.0f64);
     }
 
     sol_log_compute_units();

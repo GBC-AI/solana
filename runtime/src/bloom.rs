@@ -1,11 +1,17 @@
 //! Simple Bloom Filter
-use bv::BitVec;
-use fnv::FnvHasher;
-use rand::{self, Rng};
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::{cmp, hash::Hasher, marker::PhantomData};
+use {
+    bv::BitVec,
+    fnv::FnvHasher,
+    rand::{self, Rng},
+    serde::{Deserialize, Serialize},
+    solana_sdk::sanitize::{Sanitize, SanitizeError},
+    std::{
+        cmp, fmt,
+        hash::Hasher,
+        marker::PhantomData,
+        sync::atomic::{AtomicU64, Ordering},
+    },
+};
 
 /// Generate a stable hash of `self` for each `hash_index`
 /// Best effort can be made for uniqueness of each hash.
@@ -45,7 +51,16 @@ impl<T: BloomHashIndex> fmt::Debug for Bloom<T> {
     }
 }
 
-impl<T: BloomHashIndex> solana_sdk::sanitize::Sanitize for Bloom<T> {}
+impl<T: BloomHashIndex> Sanitize for Bloom<T> {
+    fn sanitize(&self) -> Result<(), SanitizeError> {
+        // Avoid division by zero in self.pos(...).
+        if self.bits.is_empty() {
+            Err(SanitizeError::InvalidValue)
+        } else {
+            Ok(())
+        }
+    }
+}
 
 impl<T: BloomHashIndex> Bloom<T> {
     pub fn new(num_bits: usize, keys: Vec<u64>) -> Self {
@@ -57,10 +72,12 @@ impl<T: BloomHashIndex> Bloom<T> {
             _phantom: PhantomData::default(),
         }
     }
-    /// create filter optimal for num size given the `FALSE_RATE`
-    /// the keys are randomized for picking data out of a collision resistant hash of size
-    /// `keysize` bytes
-    /// https://hur.st/bloomfilter/
+    /// Create filter optimal for num size given the `FALSE_RATE`.
+    ///
+    /// The keys are randomized for picking data out of a collision resistant hash of size
+    /// `keysize` bytes.
+    ///
+    /// See <https://hur.st/bloomfilter/>.
     pub fn random(num_items: usize, false_rate: f64, max_bits: usize) -> Self {
         let m = Self::num_bits(num_items as f64, false_rate);
         let num_bits = cmp::max(1, cmp::min(m as usize, max_bits));
@@ -146,28 +163,58 @@ impl<T: BloomHashIndex> From<Bloom<T>> for AtomicBloom<T> {
 }
 
 impl<T: BloomHashIndex> AtomicBloom<T> {
+    fn pos(&self, key: &T, hash_index: u64) -> (usize, u64) {
+        let pos = key.hash_at_index(hash_index) % self.num_bits;
+        // Divide by 64 to figure out which of the
+        // AtomicU64 bit chunks we need to modify.
+        let index = pos >> 6;
+        // (pos & 63) is equivalent to mod 64 so that we can find
+        // the index of the bit within the AtomicU64 to modify.
+        let mask = 1u64 << (pos & 63);
+        (index as usize, mask)
+    }
+
     pub fn add(&self, key: &T) {
         for k in &self.keys {
-            let pos = key.hash_at_index(*k) % self.num_bits;
-            // Divide by 64 to figure out which of the
-            // AtomicU64 bit chunks we need to modify.
-            let index = pos >> 6;
-            // (pos & 63) is equivalent to mod 64 so that we can find
-            // the index of the bit within the AtomicU64 to modify.
-            let bit = 1u64 << (pos & 63);
-            self.bits[index as usize].fetch_or(bit, Ordering::Relaxed);
+            let (index, mask) = self.pos(key, *k);
+            self.bits[index].fetch_or(mask, Ordering::Relaxed);
+        }
+    }
+
+    pub fn contains(&self, key: &T) -> bool {
+        self.keys.iter().all(|k| {
+            let (index, mask) = self.pos(key, *k);
+            let bit = self.bits[index].load(Ordering::Relaxed) & mask;
+            bit != 0u64
+        })
+    }
+
+    // Only for tests and simulations.
+    pub fn mock_clone(&self) -> Self {
+        Self {
+            keys: self.keys.clone(),
+            bits: self
+                .bits
+                .iter()
+                .map(|v| AtomicU64::new(v.load(Ordering::Relaxed)))
+                .collect(),
+            ..*self
         }
     }
 }
 
-impl<T: BloomHashIndex> Into<Bloom<T>> for AtomicBloom<T> {
-    fn into(self) -> Bloom<T> {
-        let bits: Vec<_> = self.bits.into_iter().map(AtomicU64::into_inner).collect();
+impl<T: BloomHashIndex> From<AtomicBloom<T>> for Bloom<T> {
+    fn from(atomic_bloom: AtomicBloom<T>) -> Self {
+        let bits: Vec<_> = atomic_bloom
+            .bits
+            .into_iter()
+            .map(AtomicU64::into_inner)
+            .collect();
         let num_bits_set = bits.iter().map(|x| x.count_ones() as u64).sum();
         let mut bits: BitVec<u64> = bits.into();
-        bits.truncate(self.num_bits);
+        bits.truncate(atomic_bloom.num_bits);
         Bloom {
-            keys: self.keys,
+            keys: atomic_bloom.keys,
             bits,
             num_bits_set,
             _phantom: PhantomData::default(),
@@ -177,9 +224,11 @@ impl<T: BloomHashIndex> Into<Bloom<T>> for AtomicBloom<T> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use rayon::prelude::*;
-    use solana_sdk::hash::{hash, Hash};
+    use {
+        super::*,
+        rayon::prelude::*,
+        solana_sdk::hash::{hash, Hash},
+    };
 
     #[test]
     fn test_bloom_filter() {
@@ -218,8 +267,8 @@ mod test {
     fn test_random() {
         let mut b1: Bloom<Hash> = Bloom::random(10, 0.1, 100);
         let mut b2: Bloom<Hash> = Bloom::random(10, 0.1, 100);
-        b1.keys.sort();
-        b2.keys.sort();
+        b1.keys.sort_unstable();
+        b2.keys.sort_unstable();
         assert_ne!(b1.keys, b2.keys);
     }
     // Bloom filter math in python
@@ -303,6 +352,9 @@ mod test {
         let bloom: AtomicBloom<_> = bloom.into();
         assert_eq!(bloom.num_bits, 9731);
         assert_eq!(bloom.bits.len(), (9731 + 63) / 64);
+        for hash_value in &hash_values {
+            assert!(bloom.contains(hash_value));
+        }
         let bloom: Bloom<_> = bloom.into();
         assert_eq!(bloom.num_bits_set, num_bits_set);
         for hash_value in &hash_values {
@@ -311,6 +363,9 @@ mod test {
         // Round trip, re-inserting the same hash values.
         let bloom: AtomicBloom<_> = bloom.into();
         hash_values.par_iter().for_each(|v| bloom.add(v));
+        for hash_value in &hash_values {
+            assert!(bloom.contains(hash_value));
+        }
         let bloom: Bloom<_> = bloom.into();
         assert_eq!(bloom.num_bits_set, num_bits_set);
         assert_eq!(bloom.bits.len(), 9731);
@@ -326,6 +381,17 @@ mod test {
         assert_eq!(bloom.num_bits, 9731);
         assert_eq!(bloom.bits.len(), (9731 + 63) / 64);
         more_hash_values.par_iter().for_each(|v| bloom.add(v));
+        for hash_value in &hash_values {
+            assert!(bloom.contains(hash_value));
+        }
+        for hash_value in &more_hash_values {
+            assert!(bloom.contains(hash_value));
+        }
+        let false_positive = std::iter::repeat_with(|| solana_sdk::hash::new_rand(&mut rng))
+            .take(10_000)
+            .filter(|hash_value| bloom.contains(hash_value))
+            .count();
+        assert!(false_positive < 2000, "false_positive: {}", false_positive);
         let bloom: Bloom<_> = bloom.into();
         assert_eq!(bloom.bits.len(), 9731);
         assert!(bloom.num_bits_set > num_bits_set);

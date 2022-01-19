@@ -1,30 +1,30 @@
-use solana_cli::cli::{process_command, CliCommand, CliConfig};
-use solana_client::rpc_client::RpcClient;
-use solana_core::test_validator::TestValidator;
-use solana_faucet::faucet::run_local_faucet;
-use solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair};
-use std::{fs::remove_dir_all, sync::mpsc::channel};
+#![allow(clippy::integer_arithmetic)]
+use {
+    solana_cli::cli::{process_command, CliCommand, CliConfig},
+    solana_client::rpc_client::RpcClient,
+    solana_faucet::faucet::run_local_faucet,
+    solana_sdk::{
+        commitment_config::CommitmentConfig,
+        native_token::sol_to_lamports,
+        signature::{Keypair, Signer},
+    },
+    solana_streamer::socket::SocketAddrSpace,
+    solana_test_validator::TestValidator,
+};
 
 #[test]
 fn test_cli_request_airdrop() {
-    let TestValidator {
-        server,
-        leader_data,
-        alice,
-        ledger_path,
-        ..
-    } = TestValidator::run();
-    let (sender, receiver) = channel();
-    run_local_faucet(alice, sender, None);
-    let faucet_addr = receiver.recv().unwrap();
+    let mint_keypair = Keypair::new();
+    let mint_pubkey = mint_keypair.pubkey();
+    let faucet_addr = run_local_faucet(mint_keypair, None);
+    let test_validator =
+        TestValidator::with_no_fees(mint_pubkey, Some(faucet_addr), SocketAddrSpace::Unspecified);
 
     let mut bob_config = CliConfig::recent_for_tests();
-    bob_config.json_rpc_url = format!("http://{}:{}", leader_data.rpc.ip(), leader_data.rpc.port());
+    bob_config.json_rpc_url = test_validator.rpc_url();
     bob_config.command = CliCommand::Airdrop {
-        faucet_host: None,
-        faucet_port: faucet_addr.port(),
         pubkey: None,
-        lamports: 50,
+        lamports: sol_to_lamports(50.0),
     };
     let keypair = Keypair::new();
     bob_config.signers = vec![&keypair];
@@ -32,14 +32,11 @@ fn test_cli_request_airdrop() {
     let sig_response = process_command(&bob_config);
     sig_response.unwrap();
 
-    let rpc_client = RpcClient::new_socket(leader_data.rpc);
+    let rpc_client =
+        RpcClient::new_with_commitment(test_validator.rpc_url(), CommitmentConfig::processed());
 
     let balance = rpc_client
-        .get_balance_with_commitment(&bob_config.signers[0].pubkey(), CommitmentConfig::recent())
-        .unwrap()
-        .value;
-    assert_eq!(balance, 50);
-
-    server.close().unwrap();
-    remove_dir_all(ledger_path).unwrap();
+        .get_balance(&bob_config.signers[0].pubkey())
+        .unwrap();
+    assert_eq!(balance, sol_to_lamports(50.0));
 }

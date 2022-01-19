@@ -1,26 +1,34 @@
-use crate::{
-    parse_config::parse_config,
-    parse_nonce::parse_nonce,
-    parse_stake::parse_stake,
-    parse_sysvar::parse_sysvar,
-    parse_token::{parse_token, spl_token_id_v2_0},
-    parse_vote::parse_vote,
+use {
+    crate::{
+        parse_bpf_loader::parse_bpf_upgradeable_loader,
+        parse_config::parse_config,
+        parse_nonce::parse_nonce,
+        parse_stake::parse_stake,
+        parse_sysvar::parse_sysvar,
+        parse_token::{parse_token, spl_token_id},
+        parse_vote::parse_vote,
+    },
+    inflector::Inflector,
+    serde_json::Value,
+    solana_sdk::{instruction::InstructionError, pubkey::Pubkey, stake, system_program, sysvar},
+    std::collections::HashMap,
+    thiserror::Error,
 };
-use inflector::Inflector;
-use serde_json::Value;
-use solana_sdk::{instruction::InstructionError, pubkey::Pubkey, system_program, sysvar};
-use std::collections::HashMap;
-use thiserror::Error;
 
 lazy_static! {
+    static ref BPF_UPGRADEABLE_LOADER_PROGRAM_ID: Pubkey = solana_sdk::bpf_loader_upgradeable::id();
     static ref CONFIG_PROGRAM_ID: Pubkey = solana_config_program::id();
-    static ref STAKE_PROGRAM_ID: Pubkey = solana_stake_program::id();
+    static ref STAKE_PROGRAM_ID: Pubkey = stake::program::id();
     static ref SYSTEM_PROGRAM_ID: Pubkey = system_program::id();
     static ref SYSVAR_PROGRAM_ID: Pubkey = sysvar::id();
-    static ref TOKEN_PROGRAM_ID: Pubkey = spl_token_id_v2_0();
+    static ref TOKEN_PROGRAM_ID: Pubkey = spl_token_id();
     static ref VOTE_PROGRAM_ID: Pubkey = solana_vote_program::id();
     pub static ref PARSABLE_PROGRAM_IDS: HashMap<Pubkey, ParsableAccount> = {
         let mut m = HashMap::new();
+        m.insert(
+            *BPF_UPGRADEABLE_LOADER_PROGRAM_ID,
+            ParsableAccount::BpfUpgradeableLoader,
+        );
         m.insert(*CONFIG_PROGRAM_ID, ParsableAccount::Config);
         m.insert(*SYSTEM_PROGRAM_ID, ParsableAccount::Nonce);
         m.insert(*TOKEN_PROGRAM_ID, ParsableAccount::SplToken);
@@ -60,6 +68,7 @@ pub struct ParsedAccount {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ParsableAccount {
+    BpfUpgradeableLoader,
     Config,
     Nonce,
     SplToken,
@@ -81,9 +90,12 @@ pub fn parse_account_data(
 ) -> Result<ParsedAccount, ParseAccountError> {
     let program_name = PARSABLE_PROGRAM_IDS
         .get(program_id)
-        .ok_or_else(|| ParseAccountError::ProgramNotParsable)?;
+        .ok_or(ParseAccountError::ProgramNotParsable)?;
     let additional_data = additional_data.unwrap_or_default();
     let parsed_json = match program_name {
+        ParsableAccount::BpfUpgradeableLoader => {
+            serde_json::to_value(parse_bpf_upgradeable_loader(data)?)?
+        }
         ParsableAccount::Config => serde_json::to_value(parse_config(data, pubkey)?)?,
         ParsableAccount::Nonce => serde_json::to_value(parse_nonce(data)?)?,
         ParsableAccount::SplToken => {
@@ -102,12 +114,14 @@ pub fn parse_account_data(
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use solana_sdk::nonce::{
-        state::{Data, Versions},
-        State,
+    use {
+        super::*,
+        solana_sdk::nonce::{
+            state::{Data, Versions},
+            State,
+        },
+        solana_vote_program::vote_state::{VoteState, VoteStateVersions},
     };
-    use solana_vote_program::vote_state::{VoteState, VoteStateVersions};
 
     #[test]
     fn test_parse_account_data() {
@@ -118,7 +132,7 @@ mod test {
 
         let vote_state = VoteState::default();
         let mut vote_account_data: Vec<u8> = vec![0; VoteState::size_of()];
-        let versioned = VoteStateVersions::Current(Box::new(vote_state));
+        let versioned = VoteStateVersions::new_current(vote_state);
         VoteState::serialize(&versioned, &mut vote_account_data).unwrap();
         let parsed = parse_account_data(
             &account_pubkey,

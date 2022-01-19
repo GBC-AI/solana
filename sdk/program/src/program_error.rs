@@ -1,8 +1,11 @@
-use crate::info;
-use crate::{decode_error::DecodeError, instruction::InstructionError, pubkey::PubkeyError};
-use num_traits::{FromPrimitive, ToPrimitive};
-use std::convert::TryFrom;
-use thiserror::Error;
+#![allow(clippy::integer_arithmetic)]
+use {
+    crate::{decode_error::DecodeError, instruction::InstructionError, msg, pubkey::PubkeyError},
+    borsh::maybestd::io::Error as BorshIoError,
+    num_traits::{FromPrimitive, ToPrimitive},
+    std::convert::TryFrom,
+    thiserror::Error,
+};
 
 /// Reasons the program may fail
 #[derive(Clone, Debug, Deserialize, Eq, Error, PartialEq, Serialize)]
@@ -38,6 +41,16 @@ pub enum ProgramError {
     MaxSeedLengthExceeded,
     #[error("Provided seeds do not result in a valid address")]
     InvalidSeeds,
+    #[error("IO Error: {0}")]
+    BorshIoError(String),
+    #[error("An account does not have enough lamports to be rent-exempt")]
+    AccountNotRentExempt,
+    #[error("Unsupported sysvar")]
+    UnsupportedSysvar,
+    #[error("Provided owner is not allowed")]
+    IllegalOwner,
+    #[error("Requested account data allocation exceeded the accounts data budget")]
+    AccountsDataBudgetExceeded,
 }
 
 pub trait PrintProgramError {
@@ -56,22 +69,27 @@ impl PrintProgramError for ProgramError {
                 if let Some(custom_error) = E::decode_custom_error_to_enum(*error) {
                     custom_error.print::<E>();
                 } else {
-                    info!("Error: Unknown");
+                    msg!("Error: Unknown");
                 }
             }
-            Self::InvalidArgument => info!("Error: InvalidArgument"),
-            Self::InvalidInstructionData => info!("Error: InvalidInstructionData"),
-            Self::InvalidAccountData => info!("Error: InvalidAccountData"),
-            Self::AccountDataTooSmall => info!("Error: AccountDataTooSmall"),
-            Self::InsufficientFunds => info!("Error: InsufficientFunds"),
-            Self::IncorrectProgramId => info!("Error: IncorrectProgramId"),
-            Self::MissingRequiredSignature => info!("Error: MissingRequiredSignature"),
-            Self::AccountAlreadyInitialized => info!("Error: AccountAlreadyInitialized"),
-            Self::UninitializedAccount => info!("Error: UninitializedAccount"),
-            Self::NotEnoughAccountKeys => info!("Error: NotEnoughAccountKeys"),
-            Self::AccountBorrowFailed => info!("Error: AccountBorrowFailed"),
-            Self::MaxSeedLengthExceeded => info!("Error: MaxSeedLengthExceeded"),
-            Self::InvalidSeeds => info!("Error: InvalidSeeds"),
+            Self::InvalidArgument => msg!("Error: InvalidArgument"),
+            Self::InvalidInstructionData => msg!("Error: InvalidInstructionData"),
+            Self::InvalidAccountData => msg!("Error: InvalidAccountData"),
+            Self::AccountDataTooSmall => msg!("Error: AccountDataTooSmall"),
+            Self::InsufficientFunds => msg!("Error: InsufficientFunds"),
+            Self::IncorrectProgramId => msg!("Error: IncorrectProgramId"),
+            Self::MissingRequiredSignature => msg!("Error: MissingRequiredSignature"),
+            Self::AccountAlreadyInitialized => msg!("Error: AccountAlreadyInitialized"),
+            Self::UninitializedAccount => msg!("Error: UninitializedAccount"),
+            Self::NotEnoughAccountKeys => msg!("Error: NotEnoughAccountKeys"),
+            Self::AccountBorrowFailed => msg!("Error: AccountBorrowFailed"),
+            Self::MaxSeedLengthExceeded => msg!("Error: MaxSeedLengthExceeded"),
+            Self::InvalidSeeds => msg!("Error: InvalidSeeds"),
+            Self::BorshIoError(_) => msg!("Error: BorshIoError"),
+            Self::AccountNotRentExempt => msg!("Error: AccountNotRentExempt"),
+            Self::UnsupportedSysvar => msg!("Error: UnsupportedSysvar"),
+            Self::IllegalOwner => msg!("Error: IllegalOwner"),
+            Self::AccountsDataBudgetExceeded => msg!("Error: AccountsDataBudgetExceeded"),
         }
     }
 }
@@ -98,6 +116,16 @@ pub const NOT_ENOUGH_ACCOUNT_KEYS: u64 = to_builtin!(11);
 pub const ACCOUNT_BORROW_FAILED: u64 = to_builtin!(12);
 pub const MAX_SEED_LENGTH_EXCEEDED: u64 = to_builtin!(13);
 pub const INVALID_SEEDS: u64 = to_builtin!(14);
+pub const BORSH_IO_ERROR: u64 = to_builtin!(15);
+pub const ACCOUNT_NOT_RENT_EXEMPT: u64 = to_builtin!(16);
+pub const UNSUPPORTED_SYSVAR: u64 = to_builtin!(17);
+pub const ILLEGAL_OWNER: u64 = to_builtin!(18);
+pub const ACCOUNTS_DATA_BUDGET_EXCEEDED: u64 = to_builtin!(19);
+// Warning: Any new program errors added here must also be:
+// - Added to the below conversions
+// - Added as an equivilent to InstructionError
+// - Be featureized in the BPF loader to return `InstructionError::InvalidError`
+//   until the feature is activated
 
 impl From<ProgramError> for u64 {
     fn from(error: ProgramError) -> Self {
@@ -115,7 +143,11 @@ impl From<ProgramError> for u64 {
             ProgramError::AccountBorrowFailed => ACCOUNT_BORROW_FAILED,
             ProgramError::MaxSeedLengthExceeded => MAX_SEED_LENGTH_EXCEEDED,
             ProgramError::InvalidSeeds => INVALID_SEEDS,
-
+            ProgramError::BorshIoError(_) => BORSH_IO_ERROR,
+            ProgramError::AccountNotRentExempt => ACCOUNT_NOT_RENT_EXEMPT,
+            ProgramError::UnsupportedSysvar => UNSUPPORTED_SYSVAR,
+            ProgramError::IllegalOwner => ILLEGAL_OWNER,
+            ProgramError::AccountsDataBudgetExceeded => ACCOUNTS_DATA_BUDGET_EXCEEDED,
             ProgramError::Custom(error) => {
                 if error == 0 {
                     CUSTOM_ZERO
@@ -130,21 +162,26 @@ impl From<ProgramError> for u64 {
 impl From<u64> for ProgramError {
     fn from(error: u64) -> Self {
         match error {
-            INVALID_ARGUMENT => ProgramError::InvalidArgument,
-            INVALID_INSTRUCTION_DATA => ProgramError::InvalidInstructionData,
-            INVALID_ACCOUNT_DATA => ProgramError::InvalidAccountData,
-            ACCOUNT_DATA_TOO_SMALL => ProgramError::AccountDataTooSmall,
-            INSUFFICIENT_FUNDS => ProgramError::InsufficientFunds,
-            INCORRECT_PROGRAM_ID => ProgramError::IncorrectProgramId,
-            MISSING_REQUIRED_SIGNATURES => ProgramError::MissingRequiredSignature,
-            ACCOUNT_ALREADY_INITIALIZED => ProgramError::AccountAlreadyInitialized,
-            UNINITIALIZED_ACCOUNT => ProgramError::UninitializedAccount,
-            NOT_ENOUGH_ACCOUNT_KEYS => ProgramError::NotEnoughAccountKeys,
-            ACCOUNT_BORROW_FAILED => ProgramError::AccountBorrowFailed,
-            MAX_SEED_LENGTH_EXCEEDED => ProgramError::MaxSeedLengthExceeded,
-            INVALID_SEEDS => ProgramError::InvalidSeeds,
-            CUSTOM_ZERO => ProgramError::Custom(0),
-            _ => ProgramError::Custom(error as u32),
+            CUSTOM_ZERO => Self::Custom(0),
+            INVALID_ARGUMENT => Self::InvalidArgument,
+            INVALID_INSTRUCTION_DATA => Self::InvalidInstructionData,
+            INVALID_ACCOUNT_DATA => Self::InvalidAccountData,
+            ACCOUNT_DATA_TOO_SMALL => Self::AccountDataTooSmall,
+            INSUFFICIENT_FUNDS => Self::InsufficientFunds,
+            INCORRECT_PROGRAM_ID => Self::IncorrectProgramId,
+            MISSING_REQUIRED_SIGNATURES => Self::MissingRequiredSignature,
+            ACCOUNT_ALREADY_INITIALIZED => Self::AccountAlreadyInitialized,
+            UNINITIALIZED_ACCOUNT => Self::UninitializedAccount,
+            NOT_ENOUGH_ACCOUNT_KEYS => Self::NotEnoughAccountKeys,
+            ACCOUNT_BORROW_FAILED => Self::AccountBorrowFailed,
+            MAX_SEED_LENGTH_EXCEEDED => Self::MaxSeedLengthExceeded,
+            INVALID_SEEDS => Self::InvalidSeeds,
+            BORSH_IO_ERROR => Self::BorshIoError("Unknown".to_string()),
+            ACCOUNT_NOT_RENT_EXEMPT => Self::AccountNotRentExempt,
+            UNSUPPORTED_SYSVAR => Self::UnsupportedSysvar,
+            ILLEGAL_OWNER => Self::IllegalOwner,
+            ACCOUNTS_DATA_BUDGET_EXCEEDED => Self::AccountsDataBudgetExceeded,
+            _ => Self::Custom(error as u32),
         }
     }
 }
@@ -167,6 +204,12 @@ impl TryFrom<InstructionError> for ProgramError {
             Self::Error::NotEnoughAccountKeys => Ok(Self::NotEnoughAccountKeys),
             Self::Error::AccountBorrowFailed => Ok(Self::AccountBorrowFailed),
             Self::Error::MaxSeedLengthExceeded => Ok(Self::MaxSeedLengthExceeded),
+            Self::Error::InvalidSeeds => Ok(Self::InvalidSeeds),
+            Self::Error::BorshIoError(err) => Ok(Self::BorshIoError(err)),
+            Self::Error::AccountNotRentExempt => Ok(Self::AccountNotRentExempt),
+            Self::Error::UnsupportedSysvar => Ok(Self::UnsupportedSysvar),
+            Self::Error::IllegalOwner => Ok(Self::IllegalOwner),
+            Self::Error::AccountsDataBudgetExceeded => Ok(Self::AccountsDataBudgetExceeded),
             _ => Err(error),
         }
     }
@@ -179,24 +222,29 @@ where
     fn from(error: T) -> Self {
         let error = error.to_u64().unwrap_or(0xbad_c0de);
         match error {
-            CUSTOM_ZERO => InstructionError::Custom(0),
-            INVALID_ARGUMENT => InstructionError::InvalidArgument,
-            INVALID_INSTRUCTION_DATA => InstructionError::InvalidInstructionData,
-            INVALID_ACCOUNT_DATA => InstructionError::InvalidAccountData,
-            ACCOUNT_DATA_TOO_SMALL => InstructionError::AccountDataTooSmall,
-            INSUFFICIENT_FUNDS => InstructionError::InsufficientFunds,
-            INCORRECT_PROGRAM_ID => InstructionError::IncorrectProgramId,
-            MISSING_REQUIRED_SIGNATURES => InstructionError::MissingRequiredSignature,
-            ACCOUNT_ALREADY_INITIALIZED => InstructionError::AccountAlreadyInitialized,
-            UNINITIALIZED_ACCOUNT => InstructionError::UninitializedAccount,
-            NOT_ENOUGH_ACCOUNT_KEYS => InstructionError::NotEnoughAccountKeys,
-            ACCOUNT_BORROW_FAILED => InstructionError::AccountBorrowFailed,
-            MAX_SEED_LENGTH_EXCEEDED => InstructionError::MaxSeedLengthExceeded,
-            INVALID_SEEDS => InstructionError::InvalidSeeds,
+            CUSTOM_ZERO => Self::Custom(0),
+            INVALID_ARGUMENT => Self::InvalidArgument,
+            INVALID_INSTRUCTION_DATA => Self::InvalidInstructionData,
+            INVALID_ACCOUNT_DATA => Self::InvalidAccountData,
+            ACCOUNT_DATA_TOO_SMALL => Self::AccountDataTooSmall,
+            INSUFFICIENT_FUNDS => Self::InsufficientFunds,
+            INCORRECT_PROGRAM_ID => Self::IncorrectProgramId,
+            MISSING_REQUIRED_SIGNATURES => Self::MissingRequiredSignature,
+            ACCOUNT_ALREADY_INITIALIZED => Self::AccountAlreadyInitialized,
+            UNINITIALIZED_ACCOUNT => Self::UninitializedAccount,
+            NOT_ENOUGH_ACCOUNT_KEYS => Self::NotEnoughAccountKeys,
+            ACCOUNT_BORROW_FAILED => Self::AccountBorrowFailed,
+            MAX_SEED_LENGTH_EXCEEDED => Self::MaxSeedLengthExceeded,
+            INVALID_SEEDS => Self::InvalidSeeds,
+            BORSH_IO_ERROR => Self::BorshIoError("Unknown".to_string()),
+            ACCOUNT_NOT_RENT_EXEMPT => Self::AccountNotRentExempt,
+            UNSUPPORTED_SYSVAR => Self::UnsupportedSysvar,
+            ILLEGAL_OWNER => Self::IllegalOwner,
+            ACCOUNTS_DATA_BUDGET_EXCEEDED => Self::AccountsDataBudgetExceeded,
             _ => {
                 // A valid custom error has no bits set in the upper 32
                 if error >> BUILTIN_BIT_SHIFT == 0 {
-                    InstructionError::Custom(error as u32)
+                    Self::Custom(error as u32)
                 } else {
                     Self::InvalidError
                 }
@@ -208,8 +256,15 @@ where
 impl From<PubkeyError> for ProgramError {
     fn from(error: PubkeyError) -> Self {
         match error {
-            PubkeyError::MaxSeedLengthExceeded => ProgramError::MaxSeedLengthExceeded,
-            PubkeyError::InvalidSeeds => ProgramError::InvalidSeeds,
+            PubkeyError::MaxSeedLengthExceeded => Self::MaxSeedLengthExceeded,
+            PubkeyError::InvalidSeeds => Self::InvalidSeeds,
+            PubkeyError::IllegalOwner => Self::IllegalOwner,
         }
+    }
+}
+
+impl From<BorshIoError> for ProgramError {
+    fn from(error: BorshIoError) -> Self {
+        Self::BorshIoError(format!("{}", error))
     }
 }

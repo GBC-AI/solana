@@ -12,7 +12,8 @@ gce)
   # shellcheck source=net/scripts/gce-provider.sh
   source "$here"/scripts/gce-provider.sh
 
-  cpuBootstrapLeaderMachineType="--custom-cpu 12 --custom-memory 32GB --min-cpu-platform Intel%20Skylake"
+  # use n1 instead of n2 so we don't need to spin up >= 4 local SSD's
+  cpuBootstrapLeaderMachineType="--custom-cpu 24 --min-cpu-platform Intel%20Skylake --custom-vm-type n1"
   gpuBootstrapLeaderMachineType="$cpuBootstrapLeaderMachineType --accelerator count=1,type=nvidia-tesla-p100"
   clientMachineType="--custom-cpu 16 --custom-memory 20GB"
   blockstreamerMachineType="--machine-type n1-standard-8"
@@ -68,6 +69,9 @@ externalNodes=false
 failOnValidatorBootupFailure=true
 preemptible=true
 evalInfo=false
+tmpfsAccounts=false
+defaultCustomMemoryGB="$(cloud_DefaultCustomMemoryGB)"
+customMemoryGB="$defaultCustomMemoryGB"
 
 publicNetwork=false
 letsEncryptDomainName=
@@ -134,9 +138,15 @@ Manage testnet instances
                     - Attempt to generate a TLS certificate using this
                       DNS name (useful only when the -a and -P options
                       are also provided)
-   --custom-machine-type
+   --custom-machine-type [type]
                     - Set a custom machine type without assuming whether or not
                       GPU is enabled.  Set this explicitly with --enable-gpu/-g to call out the presence of GPUs.
+$(
+  if [[ -n "$defaultCustomMemoryGB" ]]; then
+    echo "   --custom-memory-gb"
+    echo "                    - Set memory size for custom machine type in GB (default: $defaultCustomMemoryGB)"
+  fi
+)
    --enable-gpu     - Use with --custom-machine-type to specify whether or not GPUs should be used/enabled
    --validator-additional-disk-size-gb [number]
                     - Add an additional [number] GB SSD to all validators to store the config directory.
@@ -150,6 +160,11 @@ Manage testnet instances
    --self-destruct-hours [number]
                     - Specify lifetime of the allocated instances in hours. 0 to
                       disable. Only supported on GCE. (default: $selfDestructHours)
+   --validator-boot-disk-size-gb [number]
+                    - Specify validator boot disk size in gb.
+   --client-machine-type [type]
+                    - custom client machine type
+   --tmpfs-accounts - Put accounts directory on a swap-backed tmpfs volume
 
  config-specific options:
    -P               - Use public network IP addresses (default: $publicNetwork)
@@ -203,6 +218,12 @@ while [[ -n $1 ]]; do
     elif [[ $1 = --custom-machine-type ]]; then
       customMachineType="$2"
       shift 2
+    elif [[ $1 = --client-machine-type ]]; then
+      clientMachineType="$2"
+      shift 2
+    elif [[ $1 = --validator-boot-disk-size-gb ]]; then
+      validatorBootDiskSizeInGb="$2"
+      shift 2
     elif [[ $1 == --self-destruct-hours ]]; then
       maybeTimeout=$2
       if [[ $maybeTimeout =~ ^[0-9]+$ ]]; then
@@ -218,6 +239,12 @@ while [[ -n $1 ]]; do
     elif [[ $1 == --reclaim-all-reservations ]]; then
       reclaimAllReservations=true
       shift
+    elif [[ $1 == --tmpfs-accounts ]]; then
+      tmpfsAccounts=true
+      shift
+    elif [[ $1 == --custom-memory-gb ]]; then
+      customMemoryGB=$2
+      shift 2
     else
       usage "Unknown long option: $1"
     fi
@@ -273,16 +300,6 @@ while getopts "h?p:Pn:c:r:z:gG:a:d:uxf" opt "${shortArgs[@]}"; do
   esac
 done
 
-if [[ -n "$customMachineType" ]] ; then
-  bootstrapLeaderMachineType="$customMachineType"
-elif [[ "$enableGpu" = "true" ]] ; then
-  bootstrapLeaderMachineType="$gpuBootstrapLeaderMachineType"
-else
-  bootstrapLeaderMachineType="$cpuBootstrapLeaderMachineType"
-fi
-validatorMachineType=$bootstrapLeaderMachineType
-blockstreamerMachineType=$bootstrapLeaderMachineType
-
 [[ ${#zones[@]} -gt 0 ]] || zones+=("$(cloud_DefaultZone)")
 
 [[ -z $1 ]] || usage "Unexpected argument: $1"
@@ -297,10 +314,26 @@ fi
 
 case $cloudProvider in
 gce)
+  if [[ "$tmpfsAccounts" = "true" ]]; then
+    cpuBootstrapLeaderMachineType+=" --local-ssd interface=nvme"
+    gpuBootstrapLeaderMachineType+=" --local-ssd interface=nvme"
+    if [[ $customMemoryGB -lt 100 ]]; then
+      # shellcheck disable=SC2016 # We don't want expression expansion on these backticks
+      echo -e '\nWarning: At least 100GB of system RAM is recommending with `--tmpfs-accounts` (see `--custom-memory-gb`)\n'
+    fi
+  fi
+  cpuBootstrapLeaderMachineType+=" --custom-memory ${customMemoryGB}GB"
+  gpuBootstrapLeaderMachineType+=" --custom-memory ${customMemoryGB}GB"
   ;;
 ec2|azure|colo)
   if [[ -n $validatorAdditionalDiskSizeInGb ]] ; then
-    usage "Error: --validator-additional-disk-size-gb currently only supported with cloud provider: gce"
+    usage "--validator-additional-disk-size-gb currently only supported with cloud provider: gce"
+  fi
+  if [[ "$tmpfsAccounts" = "true" ]]; then
+    usage "--tmpfs-accounts only supported on cloud provider: gce"
+  fi
+  if [[ "$customMemoryGB" != "$defaultCustomMemoryGB" ]]; then
+    usage "--custom-memory-gb only supported on cloud provider: gce"
   fi
   ;;
 *)
@@ -327,6 +360,16 @@ fi
 if [[ -n $reclaimAllReservations || -n $reclaimOnlyPreemptibleReservations ]]; then
   forceDelete="true"
 fi
+
+if [[ -n "$customMachineType" ]] ; then
+  bootstrapLeaderMachineType="$customMachineType"
+elif [[ "$enableGpu" = "true" ]] ; then
+  bootstrapLeaderMachineType="$gpuBootstrapLeaderMachineType"
+else
+  bootstrapLeaderMachineType="$cpuBootstrapLeaderMachineType"
+fi
+validatorMachineType=$bootstrapLeaderMachineType
+blockstreamerMachineType=$bootstrapLeaderMachineType
 
 # cloud_ForEachInstance [cmd] [extra args to cmd]
 #
@@ -432,6 +475,7 @@ netBasename=$prefix
 publicNetwork=$publicNetwork
 sshPrivateKey=$sshPrivateKey
 letsEncryptDomainName=$letsEncryptDomainName
+export TMPFS_ACCOUNTS=$tmpfsAccounts
 EOF
   fi
   touch "$geoipConfigFile"
@@ -761,7 +805,6 @@ $(
     install-earlyoom.sh \
     install-iftop.sh \
     install-libssl-compatability.sh \
-    install-nodejs.sh \
     install-redis.sh \
     install-rsync.sh \
     localtime.sh \
@@ -819,6 +862,24 @@ See startup script log messages in /var/log/syslog for status:
 $(printNetworkInfo)
 $(creationInfo)
 EOM
+
+$(
+  if [[ "$tmpfsAccounts" = "true" ]]; then
+    cat <<'EOSWAP'
+
+# Setup swap/tmpfs for accounts
+tmpfsMountPoint=/mnt/solana-accounts
+swapDevice="/dev/nvme0n1"
+swapUUID="43076c54-7840-4e59-a368-2d164f8984fb"
+mkswap --uuid "$swapUUID" "$swapDevice"
+echo "UUID=$swapUUID swap swap defaults 0 0" >> /etc/fstab
+swapon "UUID=$swapUUID"
+mkdir -p -m 0777 "$tmpfsMountPoint"
+echo "tmpfs $tmpfsMountPoint tmpfs defaults,size=300G 0 0" >> /etc/fstab
+mount "$tmpfsMountPoint"
+EOSWAP
+  fi
+)
 
 touch /solana-scratch/.instance-startup-complete
 

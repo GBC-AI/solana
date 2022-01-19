@@ -1,14 +1,18 @@
-use core::ffi::c_void;
-use dlopen::symbor::{Container, SymBorApi, Symbol};
-use dlopen_derive::SymBorApi;
-use log::*;
-use solana_sdk::packet::Packet;
-use std::env;
-use std::ffi::OsStr;
-use std::fs;
-use std::os::raw::{c_int, c_uint};
-use std::path::{Path, PathBuf};
-use std::sync::Once;
+use {
+    core::ffi::c_void,
+    dlopen::symbor::{Container, SymBorApi, Symbol},
+    dlopen_derive::SymBorApi,
+    log::*,
+    solana_sdk::packet::Packet,
+    std::{
+        env,
+        ffi::OsStr,
+        fs,
+        os::raw::{c_int, c_uint},
+        path::{Path, PathBuf},
+        sync::Once,
+    },
+};
 
 #[repr(C)]
 pub struct Elems {
@@ -117,25 +121,23 @@ fn find_cuda_home(perf_libs_path: &Path) -> Option<PathBuf> {
     }
 
     // Search /usr/local for a `cuda-` directory that matches a perf-libs subdirectory
-    for entry in fs::read_dir(&perf_libs_path).unwrap() {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let dir_name = path.file_name().unwrap().to_str().unwrap_or("");
-            if !dir_name.starts_with("cuda-") {
-                continue;
-            }
-
-            let cuda_home: PathBuf = ["/", "usr", "local", dir_name].iter().collect();
-            if !cuda_home.is_dir() {
-                continue;
-            }
-
-            info!("CUDA installation found at {:?}", cuda_home);
-            return Some(cuda_home);
+    for entry in fs::read_dir(&perf_libs_path).unwrap().flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
         }
+        let dir_name = path.file_name().unwrap().to_str().unwrap_or("");
+        if !dir_name.starts_with("cuda-") {
+            continue;
+        }
+
+        let cuda_home: PathBuf = ["/", "usr", "local", dir_name].iter().collect();
+        if !cuda_home.is_dir() {
+            continue;
+        }
+
+        info!("CUDA installation found at {:?}", cuda_home);
+        return Some(cuda_home);
     }
     None
 }

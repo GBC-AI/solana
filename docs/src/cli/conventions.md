@@ -30,11 +30,11 @@ the base58 encoding of your public key, such as
 ## Keypair conventions
 
 Many commands using the CLI tools require a value for a `<KEYPAIR>`. The value
-you should use for the keypair depend on what type of
+you should use for the keypair depends on what type of
 [command line wallet you created](../wallet-guide/cli.md).
 
-For example, the way to display any wallet's address
-(also known as the keypair's pubkey), the CLI help document shows:
+For example, the CLI help shows that the way to display any wallet's address
+(also known as the keypair's pubkey), is:
 
 ```bash
 solana-keygen pubkey <KEYPAIR>
@@ -46,15 +46,15 @@ on your wallet type.
 #### Paper Wallet
 
 In a paper wallet, the keypair is securely derived from the seed words and
-optional passphrase you entered when the wallet was create. To use a paper wallet
-keypair anywhere the `<KEYPAIR>` text is shown in examples or help documents,
-enter the word `ASK` and the program will prompt you to enter your seed words
-when you run the command.
+optional passphrase you entered when the wallet was created. To use a paper
+wallet keypair anywhere the `<KEYPAIR>` text is shown in examples or help
+documents, enter the uri scheme `prompt://` and the program will prompt you to
+enter your seed words when you run the command.
 
 To display the wallet address of a Paper Wallet:
 
 ```bash
-solana-keygen pubkey ASK
+solana-keygen pubkey prompt://
 ```
 
 #### File System Wallet

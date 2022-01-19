@@ -1,22 +1,23 @@
 #![feature(test)]
 
 extern crate test;
-use bv::BitVec;
-use fnv::FnvHasher;
-use rand::Rng;
-use solana_runtime::bloom::{AtomicBloom, Bloom, BloomHashIndex};
-use solana_sdk::{
-    hash::{hash, Hash},
-    signature::Signature,
+use {
+    bv::BitVec,
+    fnv::FnvHasher,
+    rand::Rng,
+    solana_runtime::bloom::{AtomicBloom, Bloom, BloomHashIndex},
+    solana_sdk::{
+        hash::{hash, Hash},
+        signature::Signature,
+    },
+    std::{collections::HashSet, hash::Hasher},
+    test::Bencher,
 };
-use std::collections::HashSet;
-use std::hash::Hasher;
-use test::Bencher;
 
 #[bench]
 #[ignore]
 fn bench_bits_set(bencher: &mut Bencher) {
-    let mut bits: BitVec<u8> = BitVec::new_fill(false, 38_340_234 as u64);
+    let mut bits: BitVec<u8> = BitVec::new_fill(false, 38_340_234_u64);
     let mut hasher = FnvHasher::default();
 
     bencher.iter(|| {
@@ -31,7 +32,7 @@ fn bench_bits_set(bencher: &mut Bencher) {
 #[bench]
 #[ignore]
 fn bench_bits_set_hasher(bencher: &mut Bencher) {
-    let bits: BitVec<u8> = BitVec::new_fill(false, 38_340_234 as u64);
+    let bits: BitVec<u8> = BitVec::new_fill(false, 38_340_234_u64);
     let mut hasher = FnvHasher::default();
 
     bencher.iter(|| {
@@ -135,7 +136,6 @@ fn bench_add_hash_atomic(bencher: &mut Bencher) {
         for hash_value in &hash_values {
             bloom.add(hash_value);
         }
-        let bloom: Bloom<_> = bloom.into();
         let index = rng.gen_range(0, hash_values.len());
         if !bloom.contains(&hash_values[index]) {
             fail += 1;

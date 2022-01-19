@@ -1,8 +1,8 @@
-use assert_cmd::prelude::*;
-use solana_ledger::create_new_tmp_ledger;
-use solana_ledger::genesis_utils::create_genesis_config;
-use std::process::Command;
-use std::process::Output;
+use {
+    assert_cmd::prelude::*,
+    solana_ledger::{create_new_tmp_ledger, genesis_utils::create_genesis_config},
+    std::process::{Command, Output},
+};
 
 fn run_ledger_tool(args: &[&str]) -> Output {
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
@@ -39,11 +39,11 @@ fn nominal() {
     let ledger_path = ledger_path.to_str().unwrap();
 
     // Basic validation
-    let output = run_ledger_tool(&["-l", &ledger_path, "verify"]);
+    let output = run_ledger_tool(&["-l", ledger_path, "verify"]);
     assert!(output.status.success());
 
     // Print everything
-    let output = run_ledger_tool(&["-l", &ledger_path, "print", "-vvv"]);
+    let output = run_ledger_tool(&["-l", ledger_path, "print", "-vvv"]);
     assert!(output.status.success());
     assert_eq!(count_newlines(&output.stdout), ticks + meta_lines);
 }

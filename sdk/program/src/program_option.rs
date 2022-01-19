@@ -1,4 +1,4 @@
-//! A C representation of Rust's `std::option::Option` used accross the FFI
+//! A C representation of Rust's `std::option::Option` used across the FFI
 //! boundary for Solana program interfaces
 //!
 //! This implementation mostly matches `std::option` except iterators since the iteration
@@ -880,7 +880,7 @@ impl<T: Clone> Clone for COption<T> {
 }
 
 impl<T> Default for COption<T> {
-    /// Returns [`COption::None`][COption::COption::None].
+    /// Returns [`COption::None`][COption::None].
     ///
     /// # Examples
     ///
@@ -950,6 +950,17 @@ impl<T> From<Option<T>> for COption<T> {
     }
 }
 
+#[rustversion::since(1.49.0)]
+impl<T> From<COption<T>> for Option<T> {
+    fn from(coption: COption<T>) -> Self {
+        match coption {
+            COption::Some(value) => Some(value),
+            COption::None => None,
+        }
+    }
+}
+
+#[rustversion::before(1.49.0)] // Remove `Into` once the BPF toolchain upgrades to 1.49.0 or newer
 impl<T> Into<Option<T>> for COption<T> {
     fn into(self) -> Option<T> {
         match self {

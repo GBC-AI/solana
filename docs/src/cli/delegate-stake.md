@@ -1,6 +1,10 @@
 ---
-title: Delegate Stake
+title: Staking
 ---
+For an overview of staking, read first the
+[Staking and Inflation FAQ](https://solana.com/staking).
+
+------
 
 After you have [received SOL](transfer-tokens.md), you might consider putting
 it to use by delegating _stake_ to a validator. Stake is what we call tokens
@@ -11,6 +15,7 @@ new SOL periodically to reward stakers and validators. You earn more rewards
 the more stake you delegate.
 
 ## Create a Stake Account
+
 To delegate stake, you will need to transfer some tokens into a stake account.
 To create an account, you will need a keypair. Its public key will be used as
 the [stake account address](../staking/stake-accounts.md#account-address).
@@ -61,6 +66,7 @@ Withdraw Authority: EXU95vqs93yPeCeAU7mPPu6HbRUmTFPEiGug9oCdvQ5F
 ```
 
 ### Set Stake and Withdraw Authorities
+
 [Stake and withdraw authorities](../staking/stake-accounts.md#understanding-account-authorities)
 can be set when creating an account via the
 `--stake-authority` and `--withdraw-authority` options, or afterward with the

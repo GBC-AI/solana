@@ -1,92 +1,105 @@
-use solana_cli::{
-    cli::{process_command, request_and_confirm_airdrop, CliCommand, CliConfig},
-    spend_utils::SpendAmount,
-    test_utils::{check_ready, check_recent_balance},
+#![allow(clippy::integer_arithmetic)]
+#![allow(clippy::redundant_closure)]
+use {
+    solana_cli::{
+        check_balance,
+        cli::{process_command, request_and_confirm_airdrop, CliCommand, CliConfig},
+        spend_utils::SpendAmount,
+        test_utils::check_ready,
+    },
+    solana_cli_output::{parse_sign_only_reply_string, OutputFormat},
+    solana_client::{
+        blockhash_query::{self, BlockhashQuery},
+        nonce_utils,
+        rpc_client::RpcClient,
+    },
+    solana_faucet::faucet::run_local_faucet,
+    solana_sdk::{
+        commitment_config::CommitmentConfig,
+        native_token::sol_to_lamports,
+        nonce::State as NonceState,
+        pubkey::Pubkey,
+        signature::{keypair_from_seed, Keypair, NullSigner, Signer},
+        stake,
+    },
+    solana_streamer::socket::SocketAddrSpace,
+    solana_test_validator::TestValidator,
 };
-use solana_cli_output::{parse_sign_only_reply_string, OutputFormat};
-use solana_client::{
-    blockhash_query::{self, BlockhashQuery},
-    nonce_utils,
-    rpc_client::RpcClient,
-};
-use solana_core::test_validator::{TestValidator, TestValidatorOptions};
-use solana_faucet::faucet::run_local_faucet;
-use solana_sdk::{
-    commitment_config::CommitmentConfig,
-    nonce::State as NonceState,
-    pubkey::Pubkey,
-    signature::{keypair_from_seed, Keypair, NullSigner, Signer},
-};
-use std::{fs::remove_dir_all, sync::mpsc::channel};
 
 #[test]
 fn test_transfer() {
-    let TestValidator {
-        server,
-        leader_data,
-        alice: mint_keypair,
-        ledger_path,
-        ..
-    } = TestValidator::run_with_options(TestValidatorOptions {
-        fees: 1,
-        bootstrap_validator_lamports: 42_000,
-        ..TestValidatorOptions::default()
-    });
+    solana_logger::setup();
+    let mint_keypair = Keypair::new();
+    let mint_pubkey = mint_keypair.pubkey();
+    let faucet_addr = run_local_faucet(mint_keypair, None);
+    let test_validator = TestValidator::with_custom_fees(
+        mint_pubkey,
+        1,
+        Some(faucet_addr),
+        SocketAddrSpace::Unspecified,
+    );
 
-    let (sender, receiver) = channel();
-    run_local_faucet(mint_keypair, sender, None);
-    let faucet_addr = receiver.recv().unwrap();
-
-    let rpc_client = RpcClient::new_socket(leader_data.rpc);
+    let rpc_client =
+        RpcClient::new_with_commitment(test_validator.rpc_url(), CommitmentConfig::processed());
 
     let default_signer = Keypair::new();
     let default_offline_signer = Keypair::new();
 
     let mut config = CliConfig::recent_for_tests();
-    config.json_rpc_url = format!("http://{}:{}", leader_data.rpc.ip(), leader_data.rpc.port());
+    config.json_rpc_url = test_validator.rpc_url();
     config.signers = vec![&default_signer];
 
     let sender_pubkey = config.signers[0].pubkey();
     let recipient_pubkey = Pubkey::new(&[1u8; 32]);
 
-    request_and_confirm_airdrop(&rpc_client, &faucet_addr, &sender_pubkey, 50_000, &config)
+    request_and_confirm_airdrop(&rpc_client, &config, &sender_pubkey, sol_to_lamports(5.0))
         .unwrap();
-    check_recent_balance(50_000, &rpc_client, &sender_pubkey);
-    check_recent_balance(0, &rpc_client, &recipient_pubkey);
+    check_balance!(sol_to_lamports(5.0), &rpc_client, &sender_pubkey);
+    check_balance!(0, &rpc_client, &recipient_pubkey);
 
     check_ready(&rpc_client);
 
     // Plain ole transfer
     config.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(10),
+        amount: SpendAmount::Some(sol_to_lamports(1.0)),
         to: recipient_pubkey,
         from: 0,
         sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
         nonce_account: None,
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     process_command(&config).unwrap();
-    check_recent_balance(49_989, &rpc_client, &sender_pubkey);
-    check_recent_balance(10, &rpc_client, &recipient_pubkey);
+    check_balance!(sol_to_lamports(4.0) - 1, &rpc_client, &sender_pubkey);
+    check_balance!(sol_to_lamports(1.0), &rpc_client, &recipient_pubkey);
 
     // Plain ole transfer, failure due to InsufficientFundsForSpendAndFee
     config.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(49_989),
+        amount: SpendAmount::Some(sol_to_lamports(4.0)),
         to: recipient_pubkey,
         from: 0,
         sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
         nonce_account: None,
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     assert!(process_command(&config).is_err());
-    check_recent_balance(49_989, &rpc_client, &sender_pubkey);
-    check_recent_balance(10, &rpc_client, &recipient_pubkey);
+    check_balance!(sol_to_lamports(4.0) - 1, &rpc_client, &sender_pubkey);
+    check_balance!(sol_to_lamports(1.0), &rpc_client, &recipient_pubkey);
 
     let mut offline = CliConfig::recent_for_tests();
     offline.json_rpc_url = String::default();
@@ -96,24 +109,27 @@ fn test_transfer() {
     process_command(&offline).unwrap_err();
 
     let offline_pubkey = offline.signers[0].pubkey();
-    request_and_confirm_airdrop(&rpc_client, &faucet_addr, &offline_pubkey, 50, &config).unwrap();
-    check_recent_balance(50, &rpc_client, &offline_pubkey);
+    request_and_confirm_airdrop(&rpc_client, &offline, &offline_pubkey, sol_to_lamports(1.0))
+        .unwrap();
+    check_balance!(sol_to_lamports(1.0), &rpc_client, &offline_pubkey);
 
     // Offline transfer
-    let (blockhash, _, _) = rpc_client
-        .get_recent_blockhash_with_commitment(CommitmentConfig::recent())
-        .unwrap()
-        .value;
+    let blockhash = rpc_client.get_latest_blockhash().unwrap();
     offline.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(10),
+        amount: SpendAmount::Some(sol_to_lamports(0.5)),
         to: recipient_pubkey,
         from: 0,
         sign_only: true,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::None(blockhash),
         nonce_account: None,
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     offline.output_format = OutputFormat::JsonCompact;
     let sign_only_reply = process_command(&offline).unwrap();
@@ -122,19 +138,24 @@ fn test_transfer() {
     let offline_presigner = sign_only.presigner_of(&offline_pubkey).unwrap();
     config.signers = vec![&offline_presigner];
     config.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(10),
+        amount: SpendAmount::Some(sol_to_lamports(0.5)),
         to: recipient_pubkey,
         from: 0,
         sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::FeeCalculator(blockhash_query::Source::Cluster, blockhash),
         nonce_account: None,
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     process_command(&config).unwrap();
-    check_recent_balance(39, &rpc_client, &offline_pubkey);
-    check_recent_balance(20, &rpc_client, &recipient_pubkey);
+    check_balance!(sol_to_lamports(0.5) - 1, &rpc_client, &offline_pubkey);
+    check_balance!(sol_to_lamports(1.5), &rpc_client, &recipient_pubkey);
 
     // Create nonce account
     let nonce_account = keypair_from_seed(&[3u8; 32]).unwrap();
@@ -146,16 +167,21 @@ fn test_transfer() {
         nonce_account: 1,
         seed: None,
         nonce_authority: None,
+        memo: None,
         amount: SpendAmount::Some(minimum_nonce_balance),
     };
     process_command(&config).unwrap();
-    check_recent_balance(49_987 - minimum_nonce_balance, &rpc_client, &sender_pubkey);
+    check_balance!(
+        sol_to_lamports(4.0) - 3 - minimum_nonce_balance,
+        &rpc_client,
+        &sender_pubkey,
+    );
 
     // Fetch nonce hash
     let nonce_hash = nonce_utils::get_account_with_commitment(
         &rpc_client,
         &nonce_account.pubkey(),
-        CommitmentConfig::recent(),
+        CommitmentConfig::processed(),
     )
     .and_then(|ref a| nonce_utils::data_from_account(a))
     .unwrap()
@@ -164,10 +190,12 @@ fn test_transfer() {
     // Nonced transfer
     config.signers = vec![&default_signer];
     config.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(10),
+        amount: SpendAmount::Some(sol_to_lamports(1.0)),
         to: recipient_pubkey,
         from: 0,
         sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::FeeCalculator(
             blockhash_query::Source::NonceAccount(nonce_account.pubkey()),
@@ -175,15 +203,22 @@ fn test_transfer() {
         ),
         nonce_account: Some(nonce_account.pubkey()),
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     process_command(&config).unwrap();
-    check_recent_balance(49_976 - minimum_nonce_balance, &rpc_client, &sender_pubkey);
-    check_recent_balance(30, &rpc_client, &recipient_pubkey);
+    check_balance!(
+        sol_to_lamports(3.0) - 4 - minimum_nonce_balance,
+        &rpc_client,
+        &sender_pubkey,
+    );
+    check_balance!(sol_to_lamports(2.5), &rpc_client, &recipient_pubkey);
     let new_nonce_hash = nonce_utils::get_account_with_commitment(
         &rpc_client,
         &nonce_account.pubkey(),
-        CommitmentConfig::recent(),
+        CommitmentConfig::processed(),
     )
     .and_then(|ref a| nonce_utils::data_from_account(a))
     .unwrap()
@@ -195,16 +230,21 @@ fn test_transfer() {
     config.command = CliCommand::AuthorizeNonceAccount {
         nonce_account: nonce_account.pubkey(),
         nonce_authority: 0,
+        memo: None,
         new_authority: offline_pubkey,
     };
     process_command(&config).unwrap();
-    check_recent_balance(49_975 - minimum_nonce_balance, &rpc_client, &sender_pubkey);
+    check_balance!(
+        sol_to_lamports(3.0) - 5 - minimum_nonce_balance,
+        &rpc_client,
+        &sender_pubkey,
+    );
 
     // Fetch nonce hash
     let nonce_hash = nonce_utils::get_account_with_commitment(
         &rpc_client,
         &nonce_account.pubkey(),
-        CommitmentConfig::recent(),
+        CommitmentConfig::processed(),
     )
     .and_then(|ref a| nonce_utils::data_from_account(a))
     .unwrap()
@@ -213,15 +253,20 @@ fn test_transfer() {
     // Offline, nonced transfer
     offline.signers = vec![&default_offline_signer];
     offline.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(10),
+        amount: SpendAmount::Some(sol_to_lamports(0.4)),
         to: recipient_pubkey,
         from: 0,
         sign_only: true,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::None(nonce_hash),
         nonce_account: Some(nonce_account.pubkey()),
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     let sign_only_reply = process_command(&offline).unwrap();
     let sign_only = parse_sign_only_reply_string(&sign_only_reply);
@@ -229,10 +274,12 @@ fn test_transfer() {
     let offline_presigner = sign_only.presigner_of(&offline_pubkey).unwrap();
     config.signers = vec![&offline_presigner];
     config.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(10),
+        amount: SpendAmount::Some(sol_to_lamports(0.4)),
         to: recipient_pubkey,
         from: 0,
         sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::FeeCalculator(
             blockhash_query::Source::NonceAccount(nonce_account.pubkey()),
@@ -240,68 +287,66 @@ fn test_transfer() {
         ),
         nonce_account: Some(nonce_account.pubkey()),
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     process_command(&config).unwrap();
-    check_recent_balance(28, &rpc_client, &offline_pubkey);
-    check_recent_balance(40, &rpc_client, &recipient_pubkey);
-
-    server.close().unwrap();
-    remove_dir_all(ledger_path).unwrap();
+    check_balance!(sol_to_lamports(0.1) - 2, &rpc_client, &offline_pubkey);
+    check_balance!(sol_to_lamports(2.9), &rpc_client, &recipient_pubkey);
 }
 
 #[test]
 fn test_transfer_multisession_signing() {
-    let TestValidator {
-        server,
-        leader_data,
-        alice: mint_keypair,
-        ledger_path,
-        ..
-    } = TestValidator::run_with_options(TestValidatorOptions {
-        fees: 1,
-        bootstrap_validator_lamports: 42_000,
-        ..TestValidatorOptions::default()
-    });
-
-    let (sender, receiver) = channel();
-    run_local_faucet(mint_keypair, sender, None);
-    let faucet_addr = receiver.recv().unwrap();
+    solana_logger::setup();
+    let mint_keypair = Keypair::new();
+    let mint_pubkey = mint_keypair.pubkey();
+    let faucet_addr = run_local_faucet(mint_keypair, None);
+    let test_validator = TestValidator::with_custom_fees(
+        mint_pubkey,
+        1,
+        Some(faucet_addr),
+        SocketAddrSpace::Unspecified,
+    );
 
     let to_pubkey = Pubkey::new(&[1u8; 32]);
     let offline_from_signer = keypair_from_seed(&[2u8; 32]).unwrap();
     let offline_fee_payer_signer = keypair_from_seed(&[3u8; 32]).unwrap();
     let from_null_signer = NullSigner::new(&offline_from_signer.pubkey());
-    let config = CliConfig::recent_for_tests();
 
     // Setup accounts
-    let rpc_client = RpcClient::new_socket(leader_data.rpc);
+    let rpc_client =
+        RpcClient::new_with_commitment(test_validator.rpc_url(), CommitmentConfig::processed());
     request_and_confirm_airdrop(
         &rpc_client,
-        &faucet_addr,
+        &CliConfig::recent_for_tests(),
         &offline_from_signer.pubkey(),
-        43,
-        &config,
+        sol_to_lamports(43.0),
     )
     .unwrap();
     request_and_confirm_airdrop(
         &rpc_client,
-        &faucet_addr,
+        &CliConfig::recent_for_tests(),
         &offline_fee_payer_signer.pubkey(),
-        3,
-        &config,
+        sol_to_lamports(1.0) + 3,
     )
     .unwrap();
-    check_recent_balance(43, &rpc_client, &offline_from_signer.pubkey());
-    check_recent_balance(3, &rpc_client, &offline_fee_payer_signer.pubkey());
-    check_recent_balance(0, &rpc_client, &to_pubkey);
+    check_balance!(
+        sol_to_lamports(43.0),
+        &rpc_client,
+        &offline_from_signer.pubkey(),
+    );
+    check_balance!(
+        sol_to_lamports(1.0) + 3,
+        &rpc_client,
+        &offline_fee_payer_signer.pubkey(),
+    );
+    check_balance!(0, &rpc_client, &to_pubkey);
 
     check_ready(&rpc_client);
 
-    let (blockhash, _, _) = rpc_client
-        .get_recent_blockhash_with_commitment(CommitmentConfig::recent())
-        .unwrap()
-        .value;
+    let blockhash = rpc_client.get_latest_blockhash().unwrap();
 
     // Offline fee-payer signs first
     let mut fee_payer_config = CliConfig::recent_for_tests();
@@ -311,15 +356,20 @@ fn test_transfer_multisession_signing() {
     fee_payer_config.command = CliCommand::ClusterVersion;
     process_command(&fee_payer_config).unwrap_err();
     fee_payer_config.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(42),
+        amount: SpendAmount::Some(sol_to_lamports(42.0)),
         to: to_pubkey,
         from: 1,
         sign_only: true,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::None(blockhash),
         nonce_account: None,
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     fee_payer_config.output_format = OutputFormat::JsonCompact;
     let sign_only_reply = process_command(&fee_payer_config).unwrap();
@@ -337,15 +387,20 @@ fn test_transfer_multisession_signing() {
     from_config.command = CliCommand::ClusterVersion;
     process_command(&from_config).unwrap_err();
     from_config.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(42),
+        amount: SpendAmount::Some(sol_to_lamports(42.0)),
         to: to_pubkey,
         from: 1,
         sign_only: true,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::None(blockhash),
         nonce_account: None,
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     from_config.output_format = OutputFormat::JsonCompact;
     let sign_only_reply = process_command(&from_config).unwrap();
@@ -357,62 +412,67 @@ fn test_transfer_multisession_signing() {
 
     // Finally submit to the cluster
     let mut config = CliConfig::recent_for_tests();
-    config.json_rpc_url = format!("http://{}:{}", leader_data.rpc.ip(), leader_data.rpc.port());
+    config.json_rpc_url = test_validator.rpc_url();
     config.signers = vec![&fee_payer_presigner, &from_presigner];
     config.command = CliCommand::Transfer {
-        amount: SpendAmount::Some(42),
+        amount: SpendAmount::Some(sol_to_lamports(42.0)),
         to: to_pubkey,
         from: 1,
         sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::FeeCalculator(blockhash_query::Source::Cluster, blockhash),
         nonce_account: None,
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     process_command(&config).unwrap();
 
-    check_recent_balance(1, &rpc_client, &offline_from_signer.pubkey());
-    check_recent_balance(1, &rpc_client, &offline_fee_payer_signer.pubkey());
-    check_recent_balance(42, &rpc_client, &to_pubkey);
-
-    server.close().unwrap();
-    remove_dir_all(ledger_path).unwrap();
+    check_balance!(
+        sol_to_lamports(1.0),
+        &rpc_client,
+        &offline_from_signer.pubkey(),
+    );
+    check_balance!(
+        sol_to_lamports(1.0) + 1,
+        &rpc_client,
+        &offline_fee_payer_signer.pubkey(),
+    );
+    check_balance!(sol_to_lamports(42.0), &rpc_client, &to_pubkey);
 }
 
 #[test]
 fn test_transfer_all() {
-    let TestValidator {
-        server,
-        leader_data,
-        alice: mint_keypair,
-        ledger_path,
-        ..
-    } = TestValidator::run_with_options(TestValidatorOptions {
-        fees: 1,
-        bootstrap_validator_lamports: 42_000,
-        ..TestValidatorOptions::default()
-    });
+    solana_logger::setup();
+    let mint_keypair = Keypair::new();
+    let mint_pubkey = mint_keypair.pubkey();
+    let faucet_addr = run_local_faucet(mint_keypair, None);
+    let test_validator = TestValidator::with_custom_fees(
+        mint_pubkey,
+        1,
+        Some(faucet_addr),
+        SocketAddrSpace::Unspecified,
+    );
 
-    let (sender, receiver) = channel();
-    run_local_faucet(mint_keypair, sender, None);
-    let faucet_addr = receiver.recv().unwrap();
-
-    let rpc_client = RpcClient::new_socket(leader_data.rpc);
+    let rpc_client =
+        RpcClient::new_with_commitment(test_validator.rpc_url(), CommitmentConfig::processed());
 
     let default_signer = Keypair::new();
 
     let mut config = CliConfig::recent_for_tests();
-    config.json_rpc_url = format!("http://{}:{}", leader_data.rpc.ip(), leader_data.rpc.port());
+    config.json_rpc_url = test_validator.rpc_url();
     config.signers = vec![&default_signer];
 
     let sender_pubkey = config.signers[0].pubkey();
     let recipient_pubkey = Pubkey::new(&[1u8; 32]);
 
-    request_and_confirm_airdrop(&rpc_client, &faucet_addr, &sender_pubkey, 50_000, &config)
-        .unwrap();
-    check_recent_balance(50_000, &rpc_client, &sender_pubkey);
-    check_recent_balance(0, &rpc_client, &recipient_pubkey);
+    request_and_confirm_airdrop(&rpc_client, &config, &sender_pubkey, 50_000).unwrap();
+    check_balance!(50_000, &rpc_client, &sender_pubkey);
+    check_balance!(0, &rpc_client, &recipient_pubkey);
 
     check_ready(&rpc_client);
 
@@ -422,16 +482,137 @@ fn test_transfer_all() {
         to: recipient_pubkey,
         from: 0,
         sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
         no_wait: false,
         blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
         nonce_account: None,
         nonce_authority: 0,
+        memo: None,
         fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
     };
     process_command(&config).unwrap();
-    check_recent_balance(0, &rpc_client, &sender_pubkey);
-    check_recent_balance(49_999, &rpc_client, &recipient_pubkey);
+    check_balance!(0, &rpc_client, &sender_pubkey);
+    check_balance!(49_999, &rpc_client, &recipient_pubkey);
+}
 
-    server.close().unwrap();
-    remove_dir_all(ledger_path).unwrap();
+#[test]
+fn test_transfer_unfunded_recipient() {
+    solana_logger::setup();
+    let mint_keypair = Keypair::new();
+    let mint_pubkey = mint_keypair.pubkey();
+    let faucet_addr = run_local_faucet(mint_keypair, None);
+    let test_validator = TestValidator::with_custom_fees(
+        mint_pubkey,
+        1,
+        Some(faucet_addr),
+        SocketAddrSpace::Unspecified,
+    );
+
+    let rpc_client =
+        RpcClient::new_with_commitment(test_validator.rpc_url(), CommitmentConfig::processed());
+
+    let default_signer = Keypair::new();
+
+    let mut config = CliConfig::recent_for_tests();
+    config.json_rpc_url = test_validator.rpc_url();
+    config.signers = vec![&default_signer];
+
+    let sender_pubkey = config.signers[0].pubkey();
+    let recipient_pubkey = Pubkey::new(&[1u8; 32]);
+
+    request_and_confirm_airdrop(&rpc_client, &config, &sender_pubkey, 50_000).unwrap();
+    check_balance!(50_000, &rpc_client, &sender_pubkey);
+    check_balance!(0, &rpc_client, &recipient_pubkey);
+
+    check_ready(&rpc_client);
+
+    // Plain ole transfer
+    config.command = CliCommand::Transfer {
+        amount: SpendAmount::All,
+        to: recipient_pubkey,
+        from: 0,
+        sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: false,
+        no_wait: false,
+        blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+        nonce_account: None,
+        nonce_authority: 0,
+        memo: None,
+        fee_payer: 0,
+        derived_address_seed: None,
+        derived_address_program_id: None,
+    };
+
+    // Expect failure due to unfunded recipient and the lack of the `allow_unfunded_recipient` flag
+    process_command(&config).unwrap_err();
+}
+
+#[test]
+fn test_transfer_with_seed() {
+    solana_logger::setup();
+    let mint_keypair = Keypair::new();
+    let mint_pubkey = mint_keypair.pubkey();
+    let faucet_addr = run_local_faucet(mint_keypair, None);
+    let test_validator = TestValidator::with_custom_fees(
+        mint_pubkey,
+        1,
+        Some(faucet_addr),
+        SocketAddrSpace::Unspecified,
+    );
+
+    let rpc_client =
+        RpcClient::new_with_commitment(test_validator.rpc_url(), CommitmentConfig::processed());
+
+    let default_signer = Keypair::new();
+
+    let mut config = CliConfig::recent_for_tests();
+    config.json_rpc_url = test_validator.rpc_url();
+    config.signers = vec![&default_signer];
+
+    let sender_pubkey = config.signers[0].pubkey();
+    let recipient_pubkey = Pubkey::new(&[1u8; 32]);
+    let derived_address_seed = "seed".to_string();
+    let derived_address_program_id = stake::program::id();
+    let derived_address = Pubkey::create_with_seed(
+        &sender_pubkey,
+        &derived_address_seed,
+        &derived_address_program_id,
+    )
+    .unwrap();
+
+    request_and_confirm_airdrop(&rpc_client, &config, &sender_pubkey, sol_to_lamports(1.0))
+        .unwrap();
+    request_and_confirm_airdrop(&rpc_client, &config, &derived_address, sol_to_lamports(5.0))
+        .unwrap();
+    check_balance!(sol_to_lamports(1.0), &rpc_client, &sender_pubkey);
+    check_balance!(sol_to_lamports(5.0), &rpc_client, &derived_address);
+    check_balance!(0, &rpc_client, &recipient_pubkey);
+
+    check_ready(&rpc_client);
+
+    // Transfer with seed
+    config.command = CliCommand::Transfer {
+        amount: SpendAmount::Some(sol_to_lamports(5.0)),
+        to: recipient_pubkey,
+        from: 0,
+        sign_only: false,
+        dump_transaction_message: false,
+        allow_unfunded_recipient: true,
+        no_wait: false,
+        blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+        nonce_account: None,
+        nonce_authority: 0,
+        memo: None,
+        fee_payer: 0,
+        derived_address_seed: Some(derived_address_seed),
+        derived_address_program_id: Some(derived_address_program_id),
+    };
+    process_command(&config).unwrap();
+    check_balance!(sol_to_lamports(1.0) - 1, &rpc_client, &sender_pubkey);
+    check_balance!(sol_to_lamports(5.0), &rpc_client, &recipient_pubkey);
+    check_balance!(0, &rpc_client, &derived_address);
 }

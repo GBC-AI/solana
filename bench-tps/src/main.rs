@@ -1,12 +1,20 @@
-use log::*;
-use solana_bench_tps::bench::{do_bench_tps, generate_and_fund_keypairs, generate_keypairs};
-use solana_bench_tps::cli;
-use solana_core::gossip_service::{discover_cluster, get_client, get_multi_client};
-use solana_genesis::Base64Account;
-use solana_sdk::fee_calculator::FeeRateGovernor;
-use solana_sdk::signature::{Keypair, Signer};
-use solana_sdk::system_program;
-use std::{collections::HashMap, fs::File, io::prelude::*, path::Path, process::exit, sync::Arc};
+#![allow(clippy::integer_arithmetic)]
+use {
+    log::*,
+    solana_bench_tps::{
+        bench::{do_bench_tps, generate_and_fund_keypairs, generate_keypairs},
+        cli,
+    },
+    solana_genesis::Base64Account,
+    solana_gossip::gossip_service::{discover_cluster, get_client, get_multi_client},
+    solana_sdk::{
+        fee_calculator::FeeRateGovernor,
+        signature::{Keypair, Signer},
+        system_program,
+    },
+    solana_streamer::socket::SocketAddrSpace,
+    std::{collections::HashMap, fs::File, io::prelude::*, path::Path, process::exit, sync::Arc},
+};
 
 /// Number of signatures for all transactions in ~1 week at ~100K TPS
 pub const NUM_SIGNATURES_FOR_TXS: u64 = 100_000 * 60 * 60 * 24 * 7;
@@ -38,7 +46,7 @@ fn main() {
     let keypair_count = *tx_count * keypair_multiplier;
     if *write_to_client_file {
         info!("Generating {} keypairs", keypair_count);
-        let (keypairs, _) = generate_keypairs(&id, keypair_count as u64);
+        let (keypairs, _) = generate_keypairs(id, keypair_count as u64);
         let num_accounts = keypairs.len() as u64;
         let max_fee =
             FeeRateGovernor::new(*target_lamports_per_signature, 0).max_lamports_per_signature;
@@ -67,13 +75,14 @@ fn main() {
     }
 
     info!("Connecting to the cluster");
-    let nodes = discover_cluster(&entrypoint_addr, *num_nodes).unwrap_or_else(|err| {
-        eprintln!("Failed to discover {} nodes: {:?}", num_nodes, err);
-        exit(1);
-    });
+    let nodes = discover_cluster(entrypoint_addr, *num_nodes, SocketAddrSpace::Unspecified)
+        .unwrap_or_else(|err| {
+            eprintln!("Failed to discover {} nodes: {:?}", num_nodes, err);
+            exit(1);
+        });
 
     let client = if *multi_client {
-        let (client, num_clients) = get_multi_client(&nodes);
+        let (client, num_clients) = get_multi_client(&nodes, &SocketAddrSpace::Unspecified);
         if nodes.len() < num_clients {
             eprintln!(
                 "Error: Insufficient nodes discovered.  Expecting {} or more",
@@ -87,7 +96,7 @@ fn main() {
         let mut target_client = None;
         for node in nodes {
             if node.id == *target_node {
-                target_client = Some(Arc::new(get_client(&[node])));
+                target_client = Some(Arc::new(get_client(&[node], &SocketAddrSpace::Unspecified)));
                 break;
             }
         }
@@ -96,7 +105,7 @@ fn main() {
             exit(1);
         })
     } else {
-        Arc::new(get_client(&nodes))
+        Arc::new(get_client(&nodes, &SocketAddrSpace::Unspecified))
     };
 
     let keypairs = if *read_from_client_file {
@@ -134,7 +143,7 @@ fn main() {
         generate_and_fund_keypairs(
             client.clone(),
             Some(*faucet_addr),
-            &id,
+            id,
             keypair_count,
             *num_lamports_per_account,
         )

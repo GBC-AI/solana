@@ -1,6 +1,9 @@
 //! named accounts for synthesized data accounts for bank state, etc.
 //!
-use crate::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
+use {
+    crate::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey},
+    lazy_static::lazy_static,
+};
 
 pub mod clock;
 pub mod epoch_schedule;
@@ -13,17 +16,25 @@ pub mod slot_hashes;
 pub mod slot_history;
 pub mod stake_history;
 
+lazy_static! {
+    pub static ref ALL_IDS: Vec<Pubkey> = vec![
+        clock::id(),
+        epoch_schedule::id(),
+        #[allow(deprecated)]
+        fees::id(),
+        #[allow(deprecated)]
+        recent_blockhashes::id(),
+        rent::id(),
+        rewards::id(),
+        slot_hashes::id(),
+        slot_history::id(),
+        stake_history::id(),
+        instructions::id(),
+    ];
+}
+
 pub fn is_sysvar_id(id: &Pubkey) -> bool {
-    clock::check_id(id)
-        || epoch_schedule::check_id(id)
-        || fees::check_id(id)
-        || recent_blockhashes::check_id(id)
-        || rent::check_id(id)
-        || rewards::check_id(id)
-        || slot_hashes::check_id(id)
-        || slot_history::check_id(id)
-        || stake_history::check_id(id)
-        || instructions::check_id(id)
+    ALL_IDS.iter().any(|key| key == id)
 }
 
 #[macro_export]
@@ -32,6 +43,10 @@ macro_rules! declare_sysvar_id(
         $crate::declare_id!($name);
 
         impl $crate::sysvar::SysvarId for $type {
+            fn id() -> $crate::pubkey::Pubkey {
+                id()
+            }
+
             fn check_id(pubkey: &$crate::pubkey::Pubkey) -> bool {
                 check_id(pubkey)
             }
@@ -40,21 +55,46 @@ macro_rules! declare_sysvar_id(
         #[cfg(test)]
         #[test]
         fn test_sysvar_id() {
-            if !$crate::sysvar::is_sysvar_id(&id()) {
-                panic!("sysvar::is_sysvar_id() doesn't know about {}", $name);
-            }
+            assert!($crate::sysvar::is_sysvar_id(&id()), "sysvar::is_sysvar_id() doesn't know about {}", $name);
         }
     )
 );
 
-// owner pubkey for sysvar accounts
+#[macro_export]
+macro_rules! declare_deprecated_sysvar_id(
+    ($name:expr, $type:ty) => (
+        $crate::declare_deprecated_id!($name);
+
+        impl $crate::sysvar::SysvarId for $type {
+            fn id() -> $crate::pubkey::Pubkey {
+                #[allow(deprecated)]
+                id()
+            }
+
+            fn check_id(pubkey: &$crate::pubkey::Pubkey) -> bool {
+                #[allow(deprecated)]
+                check_id(pubkey)
+            }
+        }
+
+        #[cfg(test)]
+        #[test]
+        fn test_sysvar_id() {
+            assert!($crate::sysvar::is_sysvar_id(&id()), "sysvar::is_sysvar_id() doesn't know about {}", $name);
+        }
+    )
+);
+
+// Owner pubkey for sysvar accounts
 crate::declare_id!("Sysvar1111111111111111111111111111111111111");
 
 pub trait SysvarId {
+    fn id() -> Pubkey;
+
     fn check_id(pubkey: &Pubkey) -> bool;
 }
 
-// utilities for moving into and out of Accounts
+// Sysvar utilities
 pub trait Sysvar:
     SysvarId + Default + Sized + serde::Serialize + serde::de::DeserializeOwned
 {
@@ -70,13 +110,43 @@ pub trait Sysvar:
     fn to_account_info(&self, account_info: &mut AccountInfo) -> Option<()> {
         bincode::serialize_into(&mut account_info.data.borrow_mut()[..], self).ok()
     }
+    fn get() -> Result<Self, ProgramError> {
+        Err(ProgramError::UnsupportedSysvar)
+    }
+}
+
+#[macro_export]
+macro_rules! impl_sysvar_get {
+    ($syscall_name:ident) => {
+        fn get() -> Result<Self, ProgramError> {
+            let mut var = Self::default();
+            let var_addr = &mut var as *mut _ as *mut u8;
+
+            #[cfg(target_arch = "bpf")]
+            let result = unsafe {
+                extern "C" {
+                    fn $syscall_name(var_addr: *mut u8) -> u64;
+                }
+                $syscall_name(var_addr)
+            };
+            #[cfg(not(target_arch = "bpf"))]
+            let result = crate::program_stubs::$syscall_name(var_addr);
+
+            match result {
+                crate::entrypoint::SUCCESS => Ok(var),
+                e => Err(e.into()),
+            }
+        }
+    };
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{clock::Epoch, program_error::ProgramError, pubkey::Pubkey};
-    use std::{cell::RefCell, rc::Rc};
+    use {
+        super::*,
+        crate::{clock::Epoch, program_error::ProgramError, pubkey::Pubkey},
+        std::{cell::RefCell, rc::Rc},
+    };
 
     #[repr(C)]
     #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
@@ -85,6 +155,10 @@ mod tests {
     }
     crate::declare_id!("TestSysvar111111111111111111111111111111111");
     impl crate::sysvar::SysvarId for TestSysvar {
+        fn id() -> crate::pubkey::Pubkey {
+            id()
+        }
+
         fn check_id(pubkey: &crate::pubkey::Pubkey) -> bool {
             check_id(pubkey)
         }

@@ -4,9 +4,7 @@ set -ex
 [[ $(uname) = Linux ]] || exit 1
 [[ $USER = root ]] || exit 1
 
-apt-get update
-add-apt-repository --yes ppa:certbot/certbot
-apt-get --assume-yes install certbot
+apt install -y certbot
 
 cat > /certbot-restore.sh <<'EOF'
 #!/usr/bin/env bash

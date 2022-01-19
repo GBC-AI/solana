@@ -1,25 +1,25 @@
-use crate::blockstore::Blockstore;
-use log::*;
-use solana_measure::measure::Measure;
-use solana_sdk::clock::Slot;
-use std::{
-    collections::HashSet,
-    result::Result,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
+use {
+    crate::blockstore::Blockstore,
+    crossbeam_channel::bounded,
+    log::*,
+    solana_measure::measure::Measure,
+    solana_sdk::clock::Slot,
+    std::{
+        collections::HashSet,
+        result::Result,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::Duration,
     },
-    time::Duration,
 };
-use tokio::time::delay_for;
 
-toml_config::package_config! {
-    NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL: usize,
-}
-toml_config::derived_values! {
-    // Read up to this many blocks from blockstore before blocking on the upload process
-    BLOCK_READ_AHEAD_DEPTH: usize = CFG.NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL * 2;
-}
+// Attempt to upload this many blocks in parallel
+const NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL: usize = 32;
+
+// Read up to this many blocks from blockstore before blocking on the upload process
+const BLOCK_READ_AHEAD_DEPTH: usize = NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL * 2;
 
 pub async fn upload_confirmed_blocks(
     blockstore: Arc<Blockstore>,
@@ -27,6 +27,7 @@ pub async fn upload_confirmed_blocks(
     starting_slot: Slot,
     ending_slot: Option<Slot>,
     allow_missing_metadata: bool,
+    force_reupload: bool,
     exit: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut measure = Measure::start("entire upload");
@@ -66,7 +67,7 @@ pub async fn upload_confirmed_blocks(
     );
 
     // Gather the blocks that are already present in bigtable, by slot
-    let bigtable_slots = {
+    let bigtable_slots = if !force_reupload {
         let mut bigtable_slots = vec![];
         let first_blockstore_slot = *blockstore_slots.first().unwrap();
         let last_blockstore_slot = *blockstore_slots.last().unwrap();
@@ -83,7 +84,7 @@ pub async fn upload_confirmed_blocks(
                     Err(err) => {
                         error!("get_confirmed_blocks for {} failed: {:?}", start_slot, err);
                         // Consider exponential backoff...
-                        delay_for(Duration::from_secs(2)).await;
+                        tokio::time::sleep(Duration::from_secs(2)).await;
                     }
                 }
             };
@@ -97,6 +98,8 @@ pub async fn upload_confirmed_blocks(
             .into_iter()
             .filter(|slot| *slot <= last_blockstore_slot)
             .collect::<Vec<_>>()
+    } else {
+        Vec::new()
     };
 
     // The blocks that still need to be uploaded is the difference between what's already in the
@@ -109,7 +112,7 @@ pub async fn upload_confirmed_blocks(
             .difference(&bigtable_slots)
             .cloned()
             .collect::<Vec<_>>();
-        blocks_to_upload.sort();
+        blocks_to_upload.sort_unstable();
         blocks_to_upload
     };
 
@@ -128,7 +131,7 @@ pub async fn upload_confirmed_blocks(
     let (_loader_thread, receiver) = {
         let exit = exit.clone();
 
-        let (sender, receiver) = std::sync::mpsc::sync_channel(*BLOCK_READ_AHEAD_DEPTH);
+        let (sender, receiver) = bounded(BLOCK_READ_AHEAD_DEPTH);
         (
             std::thread::spawn(move || {
                 let mut measure = Measure::start("block loader thread");
@@ -137,7 +140,7 @@ pub async fn upload_confirmed_blocks(
                         break;
                     }
 
-                    let _ = match blockstore.get_confirmed_block(*slot) {
+                    let _ = match blockstore.get_rooted_block(*slot, true) {
                         Ok(confirmed_block) => sender.send((*slot, Some(confirmed_block))),
                         Err(err) => {
                             warn!(
@@ -148,7 +151,7 @@ pub async fn upload_confirmed_blocks(
                         }
                     };
 
-                    if i > 0 && i % CFG.NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL == 0 {
+                    if i > 0 && i % NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL == 0 {
                         info!(
                             "{}% of blocks processed ({}/{})",
                             i * 100 / blocks_to_upload.len(),
@@ -168,7 +171,7 @@ pub async fn upload_confirmed_blocks(
     use futures::stream::StreamExt;
 
     let mut stream =
-        tokio::stream::iter(receiver.into_iter()).chunks(CFG.NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL);
+        tokio_stream::iter(receiver.into_iter()).chunks(NUM_BLOCKS_TO_UPLOAD_IN_PARALLEL);
 
     while let Some(blocks) = stream.next().await {
         if exit.load(Ordering::Relaxed) {

@@ -17,7 +17,7 @@ static content and less appealing for transaction processing. The clients poll
 for transaction status instead of being notified, giving the false impression
 of higher confirmation times. Furthermore, what clients can poll for is
 limited, preventing them from making reasonable real-time decisions, such as
-recognizing a transaction is confirmed as soon as particular, trusted
+recognizing a transaction is confirmed as soon as particular, known
 validators vote on it.
 
 ## Proposed Solution
@@ -27,18 +27,18 @@ validator's ReplayStage.
 
 Improved client experience:
 
-* Support connections directly from WebAssembly apps.
-* Clients can be notified of confirmation progress in real-time, including votes
+- Support connections directly from WebAssembly apps.
+- Clients can be notified of confirmation progress in real-time, including votes
   and voter stake weight.
-* Clients can be notified when the heaviest fork changes, if it affects the
+- Clients can be notified when the heaviest fork changes, if it affects the
   transactions confirmation count.
 
 Easier for validators to support:
 
-* Each validator supports some number of concurrent connections and otherwise
+- Each validator supports some number of concurrent connections and otherwise
   has no significant resource constraints.
-* Transaction status is never stored in memory and cannot be polled for.
-* Signatures are only stored in memory until the desired commitment level or
+- Transaction status is never stored in memory and cannot be polled for.
+- Signatures are only stored in memory until the desired commitment level or
   until the blockhash expires, which ever is later.
 
 How it works:

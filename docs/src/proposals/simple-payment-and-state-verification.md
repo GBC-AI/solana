@@ -94,6 +94,7 @@ in the block. Ideally this Block-Merkle would be implmented, as the alternative
 is very inefficient.
 
 #### Block Headers
+
 In order to verify transaction inclusion proofs, light clients need to be able
 to infer the topology of the forks in the network
 
@@ -121,7 +122,7 @@ https://github.com/solana-labs/solana/blob/b6bfed64cb159ee67bb6bdbaefc7f833bbed3
             // Number of signatures processed in this block
             &signature_count_buf,
             // Last PoH hash in this block
-            self.last_blockhash().as_ref(),
+            self.latest_blockhash().as_ref(),
         ]);
 ```
 
@@ -149,7 +150,7 @@ vote, and vote account pubkey responsible for the vote.
 
 Together, the transaction merkle and optimistic confirmation proofs can be
 provided over RPC to subscribers by extending the existing signature
-subscrption logic. Clients who subscribe to the "SingleGossip" confirmation
+subscrption logic. Clients who subscribe to the "Confirmed" confirmation
 level are already notified when optimistic confirmation is detected, a flag
 can be provided to signal the two proofs above should also be returned.
 

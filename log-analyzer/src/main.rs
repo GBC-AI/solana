@@ -1,16 +1,15 @@
+#![allow(clippy::integer_arithmetic)]
 extern crate byte_unit;
 
-use byte_unit::Byte;
-use clap::{crate_description, crate_name, value_t_or_exit, App, Arg, ArgMatches, SubCommand};
-
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs;
-use std::ops::Sub;
-use std::path::PathBuf;
+use {
+    byte_unit::Byte,
+    clap::{crate_description, crate_name, value_t_or_exit, App, Arg, ArgMatches, SubCommand},
+    serde::{Deserialize, Serialize},
+    std::{collections::HashMap, fs, ops::Sub, path::PathBuf},
+};
 
 #[derive(Deserialize, Serialize, Debug)]
-struct IPAddrMapping {
+struct IpAddrMapping {
     private: String,
     public: String,
 }
@@ -39,11 +38,9 @@ impl LogLine {
         format!(
             "Lost {}%, {}, ({} - {}), sender {}, receiver {}",
             ((v1 - v2) * 100 / v1),
-            Byte::from_bytes(v1 - v2)
-                .get_appropriate_unit(true)
-                .to_string(),
-            Byte::from_bytes(v1).get_appropriate_unit(true).to_string(),
-            Byte::from_bytes(v2).get_appropriate_unit(true).to_string(),
+            Byte::from_bytes(v1 - v2).get_appropriate_unit(true),
+            Byte::from_bytes(v1).get_appropriate_unit(true),
+            Byte::from_bytes(v2).get_appropriate_unit(true),
             a,
             b
         )
@@ -89,7 +86,7 @@ impl Sub for &LogLine {
     }
 }
 
-fn map_ip_address(mappings: &[IPAddrMapping], target: String) -> String {
+fn map_ip_address(mappings: &[IpAddrMapping], target: String) -> String {
     for mapping in mappings {
         if target.contains(&mapping.private) {
             return target.replace(&mapping.private, mapping.public.as_str());
@@ -99,7 +96,7 @@ fn map_ip_address(mappings: &[IPAddrMapping], target: String) -> String {
 }
 
 fn process_iftop_logs(matches: &ArgMatches) {
-    let mut map_list: Vec<IPAddrMapping> = vec![];
+    let mut map_list: Vec<IpAddrMapping> = vec![];
     if let ("map-IP", Some(args_matches)) = matches.subcommand() {
         let mut list = args_matches
             .value_of("list")
@@ -152,9 +149,10 @@ fn process_iftop_logs(matches: &ArgMatches) {
 
 fn analyze_logs(matches: &ArgMatches) {
     let dir_path = PathBuf::from(value_t_or_exit!(matches, "folder", String));
-    if !dir_path.is_dir() {
-        panic!("Need a folder that contains all log files");
-    }
+    assert!(
+        dir_path.is_dir(),
+        "Need a folder that contains all log files"
+    );
     let list_all_diffs = matches.is_present("all");
     let files = fs::read_dir(dir_path).expect("Failed to read log folder");
     let logs: Vec<_> = files

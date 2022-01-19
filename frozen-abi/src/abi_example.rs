@@ -1,9 +1,9 @@
-use crate::abi_digester::{AbiDigester, DigestError, DigestResult};
-
-use log::*;
-
-use serde::Serialize;
-use std::any::type_name;
+use {
+    crate::abi_digester::{AbiDigester, DigestError, DigestResult},
+    log::*,
+    serde::Serialize,
+    std::any::type_name,
+};
 
 pub trait AbiExample: Sized {
     fn example() -> Self;
@@ -188,6 +188,7 @@ example_impls! { f32, 0.0f32 }
 example_impls! { f64, 0.0f64 }
 example_impls! { String, String::new() }
 example_impls! { std::time::Duration, std::time::Duration::from_secs(0) }
+example_impls! { std::sync::Once, std::sync::Once::new() }
 
 use std::sync::atomic::*;
 
@@ -414,9 +415,9 @@ impl<T: std::cmp::Ord + AbiExample> AbiExample for BTreeSet<T> {
 }
 
 #[cfg(not(target_arch = "bpf"))]
-impl AbiExample for memmap::MmapMut {
+impl AbiExample for memmap2::MmapMut {
     fn example() -> Self {
-        memmap::MmapMut::map_anon(1).expect("failed to map the data file")
+        memmap2::MmapMut::map_anon(1).expect("failed to map the data file")
     }
 }
 
@@ -467,7 +468,7 @@ impl<T: Serialize + ?Sized + AbiEnumVisitor> AbiEnumVisitor for &T {
     default fn visit_for_abi(&self, digester: &mut AbiDigester) -> DigestResult {
         info!("AbiEnumVisitor for (&default): {}", type_name::<T>());
         // Don't call self.visit_for_abi(...) to avoid the infinite recursion!
-        T::visit_for_abi(&self, digester)
+        T::visit_for_abi(self, digester)
     }
 }
 
@@ -511,11 +512,11 @@ impl<O: AbiEnumVisitor, E: AbiEnumVisitor> AbiEnumVisitor for Result<O, E> {
 
         digester.update(&["enum Result (variants = 2)"]);
         let variant: Self = Result::Ok(O::example());
-        variant.serialize(digester.create_enum_child())?;
+        variant.serialize(digester.create_enum_child()?)?;
 
         let variant: Self = Result::Err(E::example());
-        variant.serialize(digester.create_enum_child())?;
+        variant.serialize(digester.create_enum_child()?)?;
 
-        Ok(digester.create_child())
+        digester.create_child()
     }
 }

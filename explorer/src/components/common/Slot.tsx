@@ -1,41 +1,24 @@
-import React, { useState } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
 import { clusterPath } from "utils/url";
+import { Copyable } from "./Copyable";
 
-type CopyState = "copy" | "copied";
 type Props = {
   slot: number;
   link?: boolean;
 };
 export function Slot({ slot, link }: Props) {
-  const [state, setState] = useState<CopyState>("copy");
-
-  const copyToClipboard = () => navigator.clipboard.writeText(slot.toString());
-  const handleClick = () =>
-    copyToClipboard().then(() => {
-      setState("copied");
-      setTimeout(() => setState("copy"), 1000);
-    });
-
-  const copyIcon =
-    state === "copy" ? (
-      <span className="fe fe-copy" onClick={handleClick}></span>
-    ) : (
-      <span className="fe fe-check-circle"></span>
-    );
-
-  const copyButton = (
-    <span className="c-pointer font-size-tiny mr-2">{copyIcon}</span>
-  );
-
-  return link ? (
-    <span className="text-monospace">
-      {copyButton}
-      <Link to={clusterPath(`/block/${slot}`)}>
-        {slot.toLocaleString("en-US")}
-      </Link>
+  return (
+    <span className="font-monospace">
+      {link ? (
+        <Copyable text={slot.toString()}>
+          <Link to={clusterPath(`/block/${slot}`)}>
+            {slot.toLocaleString("en-US")}
+          </Link>
+        </Copyable>
+      ) : (
+        slot.toLocaleString("en-US")
+      )}
     </span>
-  ) : (
-    <span className="text-monospace">{slot.toLocaleString("en-US")}</span>
   );
 }

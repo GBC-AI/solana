@@ -1,10 +1,12 @@
-use crate::parse_instruction::{
-    check_num_accounts, ParsableProgram, ParseInstructionError, ParsedInstructionEnum,
-};
-use bincode::deserialize;
-use serde_json::json;
-use solana_sdk::{
-    instruction::CompiledInstruction, pubkey::Pubkey, system_instruction::SystemInstruction,
+use {
+    crate::parse_instruction::{
+        check_num_accounts, ParsableProgram, ParseInstructionError, ParsedInstructionEnum,
+    },
+    bincode::deserialize,
+    serde_json::json,
+    solana_sdk::{
+        instruction::CompiledInstruction, pubkey::Pubkey, system_instruction::SystemInstruction,
+    },
 };
 
 pub fn parse_system(
@@ -68,12 +70,12 @@ pub fn parse_system(
             space,
             owner,
         } => {
-            check_num_system_accounts(&instruction.accounts, 3)?;
+            check_num_system_accounts(&instruction.accounts, 2)?;
             Ok(ParsedInstructionEnum {
                 instruction_type: "createAccountWithSeed".to_string(),
                 info: json!({
                     "source": account_keys[instruction.accounts[0] as usize].to_string(),
-                    "newAccount": account_keys[instruction.accounts[2] as usize].to_string(),
+                    "newAccount": account_keys[instruction.accounts[1] as usize].to_string(),
                     "base": base.to_string(),
                     "seed": seed,
                     "lamports": lamports,
@@ -197,8 +199,10 @@ fn check_num_system_accounts(accounts: &[u8], num: usize) -> Result<(), ParseIns
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use solana_sdk::{message::Message, pubkey::Pubkey, system_instruction};
+    use {
+        super::*,
+        solana_sdk::{message::Message, pubkey::Pubkey, system_instruction},
+    };
 
     #[test]
     #[allow(clippy::same_item_push)]
@@ -260,7 +264,7 @@ mod test {
 
         let seed = "test_seed";
         let instruction = system_instruction::create_account_with_seed(
-            &keys[0], &keys[1], &keys[2], seed, lamports, space, &keys[3],
+            &keys[0], &keys[2], &keys[1], seed, lamports, space, &keys[3],
         );
         let message = Message::new(&[instruction], None);
         assert_eq!(
@@ -269,16 +273,37 @@ mod test {
                 instruction_type: "createAccountWithSeed".to_string(),
                 info: json!({
                     "source": keys[0].to_string(),
-                    "newAccount": keys[1].to_string(),
+                    "newAccount": keys[2].to_string(),
                     "lamports": lamports,
-                    "base": keys[2].to_string(),
+                    "base": keys[1].to_string(),
                     "seed": seed,
                     "owner": keys[3].to_string(),
                     "space": space,
                 }),
             }
         );
-        assert!(parse_system(&message.instructions[0], &keys[0..2]).is_err());
+
+        let seed = "test_seed";
+        let instruction = system_instruction::create_account_with_seed(
+            &keys[0], &keys[1], &keys[0], seed, lamports, space, &keys[3],
+        );
+        let message = Message::new(&[instruction], None);
+        assert_eq!(
+            parse_system(&message.instructions[0], &keys[0..2]).unwrap(),
+            ParsedInstructionEnum {
+                instruction_type: "createAccountWithSeed".to_string(),
+                info: json!({
+                    "source": keys[0].to_string(),
+                    "newAccount": keys[1].to_string(),
+                    "lamports": lamports,
+                    "base": keys[0].to_string(),
+                    "seed": seed,
+                    "owner": keys[3].to_string(),
+                    "space": space,
+                }),
+            }
+        );
+        assert!(parse_system(&message.instructions[0], &keys[0..1]).is_err());
 
         let instruction = system_instruction::allocate(&keys[0], space);
         let message = Message::new(&[instruction], None);

@@ -1,19 +1,24 @@
-use crate::keypair::{
-    keypair_from_seed_phrase, pubkey_from_path, resolve_signer_from_path, signer_from_path,
-    ASK_KEYWORD, SKIP_SEED_PHRASE_VALIDATION_ARG,
+use {
+    crate::keypair::{
+        keypair_from_seed_phrase, pubkey_from_path, resolve_signer_from_path, signer_from_path,
+        ASK_KEYWORD, SKIP_SEED_PHRASE_VALIDATION_ARG,
+    },
+    chrono::DateTime,
+    clap::ArgMatches,
+    solana_remote_wallet::remote_wallet::RemoteWalletManager,
+    solana_sdk::{
+        clock::UnixTimestamp,
+        commitment_config::CommitmentConfig,
+        genesis_config::ClusterType,
+        native_token::sol_to_lamports,
+        pubkey::Pubkey,
+        signature::{read_keypair_file, Keypair, Signature, Signer},
+    },
+    std::{str::FromStr, sync::Arc},
 };
-use chrono::DateTime;
-use clap::ArgMatches;
-use solana_remote_wallet::remote_wallet::RemoteWalletManager;
-use solana_sdk::{
-    clock::UnixTimestamp,
-    commitment_config::CommitmentConfig,
-    genesis_config::ClusterType,
-    native_token::sol_to_lamports,
-    pubkey::Pubkey,
-    signature::{read_keypair_file, Keypair, Signature, Signer},
-};
-use std::{str::FromStr, sync::Arc};
+
+// Sentinel value used to indicate to write to screen instead of file
+pub const STDOUT_OUTFILE_TOKEN: &str = "-";
 
 // Return parsed values from matches at `name`
 pub fn values_of<T>(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<T>>
@@ -55,7 +60,7 @@ pub fn keypair_of(matches: &ArgMatches<'_>, name: &str) -> Option<Keypair> {
     if let Some(value) = matches.value_of(name) {
         if value == ASK_KEYWORD {
             let skip_validation = matches.is_present(SKIP_SEED_PHRASE_VALIDATION_ARG.name);
-            keypair_from_seed_phrase(name, skip_validation, true).ok()
+            keypair_from_seed_phrase(name, skip_validation, true, None, true).ok()
         } else {
             read_keypair_file(value).ok()
         }
@@ -70,7 +75,7 @@ pub fn keypairs_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<Keypair>>
             .filter_map(|value| {
                 if value == ASK_KEYWORD {
                     let skip_validation = matches.is_present(SKIP_SEED_PHRASE_VALIDATION_ARG.name);
-                    keypair_from_seed_phrase(name, skip_validation, true).ok()
+                    keypair_from_seed_phrase(name, skip_validation, true, None, true).ok()
                 } else {
                     read_keypair_file(value).ok()
                 }
@@ -167,12 +172,12 @@ pub fn resolve_signer(
     name: &str,
     wallet_manager: &mut Option<Arc<RemoteWalletManager>>,
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    Ok(resolve_signer_from_path(
+    resolve_signer_from_path(
         matches,
         matches.value_of(name).unwrap(),
         name,
         wallet_manager,
-    )?)
+    )
 }
 
 pub fn lamports_of_sol(matches: &ArgMatches<'_>, name: &str) -> Option<u64> {
@@ -184,21 +189,19 @@ pub fn cluster_type_of(matches: &ArgMatches<'_>, name: &str) -> Option<ClusterTy
 }
 
 pub fn commitment_of(matches: &ArgMatches<'_>, name: &str) -> Option<CommitmentConfig> {
-    matches.value_of(name).map(|value| match value {
-        "max" => CommitmentConfig::max(),
-        "recent" => CommitmentConfig::recent(),
-        "root" => CommitmentConfig::root(),
-        "single" => CommitmentConfig::single(),
-        _ => CommitmentConfig::default(),
-    })
+    matches
+        .value_of(name)
+        .map(|value| CommitmentConfig::from_str(value).unwrap_or_default())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use clap::{App, Arg};
-    use solana_sdk::signature::write_keypair_file;
-    use std::fs;
+    use {
+        super::*,
+        clap::{App, Arg},
+        solana_sdk::signature::write_keypair_file,
+        std::fs,
+    };
 
     fn app<'ab, 'v>() -> App<'ab, 'v> {
         App::new("test")
@@ -216,7 +219,7 @@ mod tests {
         use std::env;
         let out_dir = env::var("FARF_DIR").unwrap_or_else(|_| "farf".to_string());
 
-        format!("{}/tmp/{}-{}", out_dir, name, pubkey.to_string())
+        format!("{}/tmp/{}-{}", out_dir, name, pubkey)
     }
 
     #[test]

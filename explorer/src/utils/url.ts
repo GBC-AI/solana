@@ -5,58 +5,28 @@ export function useQuery() {
   return new URLSearchParams(useLocation().search);
 }
 
-export const clusterPath = (pathname: string) => {
+export const clusterPath = (pathname: string, params?: URLSearchParams) => {
   return (location: Location) => ({
-    ...pickCluster(location),
+    ...pickClusterParams(location, params),
     pathname,
   });
 };
 
-export function pickCluster(location: Location): Location {
-  const cluster = new URLSearchParams(location.search).get("cluster");
+export function pickClusterParams(
+  location: Location,
+  newParams?: URLSearchParams
+): Location {
+  const urlParams = new URLSearchParams(location.search);
+  const cluster = urlParams.get("cluster");
+  const customUrl = urlParams.get("customUrl");
 
-  let search = "";
-  if (cluster) {
-    const params = new URLSearchParams();
-    params.set("cluster", cluster);
-    search = params.toString();
-  }
+  // Pick the params we care about
+  newParams = newParams || new URLSearchParams();
+  if (cluster) newParams.set("cluster", cluster);
+  if (customUrl) newParams.set("customUrl", customUrl);
 
   return {
     ...location,
-    search,
+    search: newParams.toString(),
   };
-}
-
-export function findGetParameter(parameterName: string): string | null {
-  let result = null,
-    tmp = [];
-  window.location.search
-    .substr(1)
-    .split("&")
-    .forEach(function (item) {
-      tmp = item.split("=");
-      if (tmp[0].toLowerCase() === parameterName.toLowerCase()) {
-        if (tmp.length === 2) {
-          result = decodeURIComponent(tmp[1]);
-        } else if (tmp.length === 1) {
-          result = "";
-        }
-      }
-    });
-  return result;
-}
-
-export function findPathSegment(pathName: string): string | null {
-  const segments = window.location.pathname.substr(1).split("/");
-  if (segments.length < 2) return null;
-
-  // remove all but last two segments
-  segments.splice(0, segments.length - 2);
-
-  if (segments[0] === pathName) {
-    return segments[1];
-  }
-
-  return null;
 }

@@ -1,9 +1,13 @@
-use crate::rpc_request;
-use solana_sdk::{
-    signature::SignerError, transaction::TransactionError, transport::TransportError,
-};
-use std::io;
-use thiserror::Error;
+pub use reqwest;
+use {
+    crate::{rpc_request, rpc_response},
+    solana_faucet::faucet::FaucetError,
+    solana_sdk::{
+        signature::SignerError, transaction::TransactionError, transport::TransportError,
+    },
+    std::io,
+    thiserror::Error,
+}; // export `reqwest` for clients
 
 #[derive(Error, Debug)]
 pub enum ClientErrorKind {
@@ -19,8 +23,28 @@ pub enum ClientErrorKind {
     SigningError(#[from] SignerError),
     #[error(transparent)]
     TransactionError(#[from] TransactionError),
+    #[error(transparent)]
+    FaucetError(#[from] FaucetError),
     #[error("Custom: {0}")]
     Custom(String),
+}
+
+impl ClientErrorKind {
+    pub fn get_transaction_error(&self) -> Option<TransactionError> {
+        match self {
+            Self::RpcError(rpc_request::RpcError::RpcResponseError {
+                data:
+                    rpc_request::RpcResponseErrorData::SendTransactionPreflightFailure(
+                        rpc_response::RpcSimulateTransactionResult {
+                            err: Some(tx_err), ..
+                        },
+                    ),
+                ..
+            }) => Some(tx_err.clone()),
+            Self::TransactionError(tx_err) => Some(tx_err.clone()),
+            _ => None,
+        }
+    }
 }
 
 impl From<TransportError> for ClientErrorKind {
@@ -33,16 +57,17 @@ impl From<TransportError> for ClientErrorKind {
     }
 }
 
-impl Into<TransportError> for ClientErrorKind {
-    fn into(self) -> TransportError {
-        match self {
-            Self::Io(err) => TransportError::IoError(err),
-            Self::TransactionError(err) => TransportError::TransactionError(err),
-            Self::Reqwest(err) => TransportError::Custom(format!("{:?}", err)),
-            Self::RpcError(err) => TransportError::Custom(format!("{:?}", err)),
-            Self::SerdeJson(err) => TransportError::Custom(format!("{:?}", err)),
-            Self::SigningError(err) => TransportError::Custom(format!("{:?}", err)),
-            Self::Custom(err) => TransportError::Custom(format!("{:?}", err)),
+impl From<ClientErrorKind> for TransportError {
+    fn from(client_error_kind: ClientErrorKind) -> Self {
+        match client_error_kind {
+            ClientErrorKind::Io(err) => Self::IoError(err),
+            ClientErrorKind::TransactionError(err) => Self::TransactionError(err),
+            ClientErrorKind::Reqwest(err) => Self::Custom(format!("{:?}", err)),
+            ClientErrorKind::RpcError(err) => Self::Custom(format!("{:?}", err)),
+            ClientErrorKind::SerdeJson(err) => Self::Custom(format!("{:?}", err)),
+            ClientErrorKind::SigningError(err) => Self::Custom(format!("{:?}", err)),
+            ClientErrorKind::FaucetError(err) => Self::Custom(format!("{:?}", err)),
+            ClientErrorKind::Custom(err) => Self::Custom(format!("{:?}", err)),
         }
     }
 }
@@ -78,6 +103,10 @@ impl ClientError {
     pub fn kind(&self) -> &ClientErrorKind {
         &self.kind
     }
+
+    pub fn get_transaction_error(&self) -> Option<TransactionError> {
+        self.kind.get_transaction_error()
+    }
 }
 
 impl From<ClientErrorKind> for ClientError {
@@ -98,9 +127,9 @@ impl From<TransportError> for ClientError {
     }
 }
 
-impl Into<TransportError> for ClientError {
-    fn into(self) -> TransportError {
-        self.kind.into()
+impl From<ClientError> for TransportError {
+    fn from(client_error: ClientError) -> Self {
+        client_error.kind.into()
     }
 }
 
@@ -151,6 +180,15 @@ impl From<SignerError> for ClientError {
 
 impl From<TransactionError> for ClientError {
     fn from(err: TransactionError) -> Self {
+        Self {
+            request: None,
+            kind: err.into(),
+        }
+    }
+}
+
+impl From<FaucetError> for ClientError {
+    fn from(err: FaucetError) -> Self {
         Self {
             request: None,
             kind: err.into(),

@@ -60,7 +60,7 @@ function analyze_packet_loss {
   )
 }
 
-function wait_for_bootstrap_validator_stake_drop {
+function wait_for_max_stake {
   max_stake="$1"
   if [[ $max_stake -eq 100 ]]; then
     return
@@ -69,18 +69,19 @@ function wait_for_bootstrap_validator_stake_drop {
   source "${REPO_ROOT}"/net/common.sh
   loadConfigFile
 
-  while true; do
   # shellcheck disable=SC2154
-    bootstrap_validator_validator_info="$(ssh "${sshOptions[@]}" "${validatorIpList[0]}" '$HOME/.cargo/bin/solana --url http://127.0.0.1:8899 validators | grep "$($HOME/.cargo/bin/solana-keygen pubkey ~/solana/config/bootstrap-validator/identity.json)"')"
-    bootstrap_validator_stake_percentage="$(echo "$bootstrap_validator_validator_info" | awk '{gsub(/[\(,\),\%]/,""); print $9}')"
+  # shellcheck disable=SC2029
+  ssh "${sshOptions[@]}" "${validatorIpList[0]}" "RUST_LOG=info \$HOME/.cargo/bin/solana wait-for-max-stake $max_stake --url http://127.0.0.1:8899"
+}
 
-    if [[ $(echo "$bootstrap_validator_stake_percentage < $max_stake" | bc) -ne 0 ]]; then
-      echo "Bootstrap validator stake has fallen below $max_stake to $bootstrap_validator_stake_percentage"
-      break
-    fi
-    echo "Max bootstrap validator stake: $max_stake.  Current stake: $bootstrap_validator_stake_percentage.  Sleeping 30s for stake to distribute."
-    sleep 30
-  done
+function wait_for_equal_stake {
+  source "${REPO_ROOT}"/net/common.sh
+  loadConfigFile
+
+  max_stake=$((100 / ${#validatorIpList[@]} + 1))
+  execution_step "Waiting for max stake to fall below ${max_stake}%"
+
+  wait_for_max_stake $max_stake
 }
 
 function get_slot {
@@ -93,6 +94,35 @@ function get_bootstrap_validator_ip_address {
   source "${REPO_ROOT}"/net/common.sh
   loadConfigFile
   echo "${validatorIpList[0]}"
+}
+
+function get_active_stake {
+  source "${REPO_ROOT}"/net/common.sh
+  loadConfigFile
+  ssh "${sshOptions[@]}" "${validatorIpList[0]}" \
+    '$HOME/.cargo/bin/solana --url http://127.0.0.1:8899 validators --output=json | grep -o "totalActiveStake\": [0-9]*" | cut -d: -f2'
+}
+
+function get_current_stake {
+  source "${REPO_ROOT}"/net/common.sh
+  loadConfigFile
+  ssh "${sshOptions[@]}" "${validatorIpList[0]}" \
+    '$HOME/.cargo/bin/solana --url http://127.0.0.1:8899 validators --output=json | grep -o "totalCurrentStake\": [0-9]*" | cut -d: -f2'
+}
+
+function get_validator_confirmation_time {
+  SINCE=$1
+  declare q_mean_confirmation='
+    SELECT ROUND(MEAN("duration_ms")) as "mean_confirmation_ms"
+      FROM "'$TESTNET_TAG'"."autogen"."validator-confirmation"
+      WHERE time > now() - '"$SINCE"'s'
+
+  mean_confirmation_ms=$( \
+      curl -G "${INFLUX_HOST}/query?u=ro&p=topsecret" \
+        --data-urlencode "db=${TESTNET_TAG}" \
+        --data-urlencode "q=$q_mean_confirmation" |
+      python3 "${REPO_ROOT}"/system-test/testnet-automation-json-parser.py --empty_error |
+      cut -d' ' -f2)
 }
 
 function collect_performance_statistics {
@@ -148,7 +178,19 @@ function collect_performance_statistics {
   curl -G "${INFLUX_HOST}/query?u=ro&p=topsecret" \
     --data-urlencode "db=${TESTNET_TAG}" \
     --data-urlencode "q=$q_mean_tps;$q_max_tps;$q_mean_confirmation;$q_max_confirmation;$q_99th_confirmation;$q_max_tower_distance_observed;$q_last_tower_distance_observed" |
-    python "${REPO_ROOT}"/system-test/testnet-automation-json-parser.py >>"$RESULT_FILE"
+    python3 "${REPO_ROOT}"/system-test/testnet-automation-json-parser.py >>"$RESULT_FILE"
+
+  declare q_dropped_vote_hash_count='
+    SELECT sum("count") as "sum_dropped_vote_hash"
+      FROM "'$TESTNET_TAG'"."autogen"."dropped-vote-hash"
+      WHERE time > now() - '"$TEST_DURATION_SECONDS"'s'
+
+  # store in variable to be returned
+  dropped_vote_hash_count=$( \
+  curl -G "${INFLUX_HOST}/query?u=ro&p=topsecret" \
+    --data-urlencode "db=${TESTNET_TAG}" \
+    --data-urlencode "q=$q_dropped_vote_hash_count" |
+    python3 "${REPO_ROOT}"/system-test/testnet-automation-json-parser-missing.py)
 }
 
 function upload_results_to_slack() {
@@ -172,7 +214,7 @@ function upload_results_to_slack() {
     BUILDKITE_BUILD_URL="https://buildkite.com/solana-labs/"
   fi
 
-  GRAFANA_URL="https://metrics.solana.com:3000/d/monitor-${CHANNEL:-edge}/cluster-telemetry-${CHANNEL:-edge}?var-testnet=${TESTNET_TAG:-testnet-automation}&from=${TESTNET_START_UNIX_MSECS:-0}&to=${TESTNET_FINISH_UNIX_MSECS:-0}"
+  GRAFANA_URL="https://internal-metrics.solana.com:3000/d/monitor-${CHANNEL:-edge}/cluster-telemetry-${CHANNEL:-edge}?var-testnet=${TESTNET_TAG:-testnet-automation}&from=${TESTNET_START_UNIX_MSECS:-0}&to=${TESTNET_FINISH_UNIX_MSECS:-0}"
 
   [[ -n $RESULT_DETAILS ]] || RESULT_DETAILS="Undefined"
   [[ -n $TEST_CONFIGURATION ]] || TEST_CONFIGURATION="Undefined"

@@ -1,19 +1,21 @@
 #![feature(test)]
 
 extern crate test;
-use solana_sdk::{
-    account::{create_account, from_account},
-    slot_history::SlotHistory,
+use {
+    solana_sdk::{
+        account::{create_account_for_test, from_account},
+        slot_history::SlotHistory,
+    },
+    test::Bencher,
 };
-use test::Bencher;
 
 #[bench]
 fn bench_to_from_account(b: &mut Bencher) {
     let mut slot_history = SlotHistory::default();
 
     b.iter(|| {
-        let account = create_account(&slot_history, 0);
-        slot_history = from_account::<SlotHistory>(&account).unwrap();
+        let account = create_account_for_test(&slot_history);
+        slot_history = from_account::<SlotHistory, _>(&account).unwrap();
     });
 }
 

@@ -1,34 +1,36 @@
-use solana_runtime::{
-    bank::Bank,
-    bank_client::BankClient,
-    genesis_utils::{create_genesis_config_with_leader, GenesisConfigInfo},
+#![allow(clippy::integer_arithmetic)]
+use {
+    solana_runtime::{
+        bank::Bank,
+        bank_client::BankClient,
+        genesis_utils::{create_genesis_config_with_leader, GenesisConfigInfo},
+    },
+    solana_sdk::{
+        account::from_account,
+        account_utils::StateMut,
+        client::SyncClient,
+        message::Message,
+        pubkey::Pubkey,
+        signature::{Keypair, Signer},
+        stake::{
+            self, instruction as stake_instruction,
+            state::{Authorized, Lockup, StakeState},
+        },
+        sysvar::{self, stake_history::StakeHistory},
+    },
+    solana_stake_program::stake_state,
+    solana_vote_program::{
+        vote_instruction,
+        vote_state::{Vote, VoteInit, VoteState, VoteStateVersions},
+    },
+    std::sync::Arc,
 };
-use solana_sdk::{
-    account::from_account,
-    account_utils::StateMut,
-    client::SyncClient,
-    message::Message,
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    system_instruction::SystemError,
-    sysvar::{self, stake_history::StakeHistory},
-    transaction::TransactionError,
-};
-use solana_stake_program::{
-    stake_instruction::{self},
-    stake_state::{self, StakeState},
-};
-use solana_vote_program::{
-    vote_instruction,
-    vote_state::{Vote, VoteInit, VoteState, VoteStateVersions},
-};
-use std::sync::Arc;
 
 fn next_epoch(bank: &Arc<Bank>) -> Arc<Bank> {
     bank.squash();
 
     Arc::new(Bank::new_from_parent(
-        &bank,
+        bank,
         &Pubkey::default(),
         bank.get_slots_in_epoch(bank.epoch()) + bank.slot(),
     ))
@@ -70,13 +72,13 @@ fn fill_epoch_with_votes(
 }
 
 fn warmed_up(bank: &Bank, stake_pubkey: &Pubkey) -> bool {
-    let stake = StakeState::stake_from(&bank.get_account(stake_pubkey).unwrap()).unwrap();
+    let stake = stake_state::stake_from(&bank.get_account(stake_pubkey).unwrap()).unwrap();
 
     stake.delegation.stake
         == stake.stake(
             bank.epoch(),
             Some(
-                &from_account::<StakeHistory>(
+                &from_account::<StakeHistory, _>(
                     &bank.get_account(&sysvar::stake_history::id()).unwrap(),
                 )
                 .unwrap(),
@@ -85,12 +87,12 @@ fn warmed_up(bank: &Bank, stake_pubkey: &Pubkey) -> bool {
 }
 
 fn get_staked(bank: &Bank, stake_pubkey: &Pubkey) -> u64 {
-    StakeState::stake_from(&bank.get_account(stake_pubkey).unwrap())
+    stake_state::stake_from(&bank.get_account(stake_pubkey).unwrap())
         .unwrap()
         .stake(
             bank.epoch(),
             Some(
-                &from_account::<StakeHistory>(
+                &from_account::<StakeHistory, _>(
                     &bank.get_account(&sysvar::stake_history::id()).unwrap(),
                 )
                 .unwrap(),
@@ -114,12 +116,12 @@ fn test_stake_create_and_split_single_signature() {
 
     let staker_pubkey = staker_keypair.pubkey();
 
-    let bank_client = BankClient::new_shared(&Arc::new(Bank::new(&genesis_config)));
+    let bank_client = BankClient::new_shared(&Arc::new(Bank::new_for_tests(&genesis_config)));
 
     let stake_address =
-        Pubkey::create_with_seed(&staker_pubkey, "stake", &solana_stake_program::id()).unwrap();
+        Pubkey::create_with_seed(&staker_pubkey, "stake", &stake::program::id()).unwrap();
 
-    let authorized = stake_state::Authorized::auto(&staker_pubkey);
+    let authorized = Authorized::auto(&staker_pubkey);
 
     let lamports = 1_000_000;
 
@@ -131,7 +133,7 @@ fn test_stake_create_and_split_single_signature() {
             &staker_pubkey, // base
             "stake",        // seed
             &authorized,
-            &stake_state::Lockup::default(),
+            &Lockup::default(),
             lamports,
         ),
         Some(&staker_pubkey),
@@ -144,8 +146,7 @@ fn test_stake_create_and_split_single_signature() {
 
     // split the stake
     let split_stake_address =
-        Pubkey::create_with_seed(&staker_pubkey, "split_stake", &solana_stake_program::id())
-            .unwrap();
+        Pubkey::create_with_seed(&staker_pubkey, "split_stake", &stake::program::id()).unwrap();
     // Test split
     let message = Message::new(
         &stake_instruction::split_with_seed(
@@ -168,7 +169,7 @@ fn test_stake_create_and_split_single_signature() {
 
 #[test]
 fn test_stake_create_and_split_to_existing_system_account() {
-    // Ensure stake-split does not allow the user to promote an existing system account into
+    // Ensure stake-split allows the user to promote an existing system account into
     // a stake account.
 
     solana_logger::setup();
@@ -185,12 +186,12 @@ fn test_stake_create_and_split_to_existing_system_account() {
 
     let staker_pubkey = staker_keypair.pubkey();
 
-    let bank_client = BankClient::new_shared(&Arc::new(Bank::new(&genesis_config)));
+    let bank_client = BankClient::new_shared(&Arc::new(Bank::new_for_tests(&genesis_config)));
 
     let stake_address =
-        Pubkey::create_with_seed(&staker_pubkey, "stake", &solana_stake_program::id()).unwrap();
+        Pubkey::create_with_seed(&staker_pubkey, "stake", &stake::program::id()).unwrap();
 
-    let authorized = stake_state::Authorized::auto(&staker_pubkey);
+    let authorized = Authorized::auto(&staker_pubkey);
 
     let lamports = 1_000_000;
 
@@ -202,7 +203,7 @@ fn test_stake_create_and_split_to_existing_system_account() {
             &staker_pubkey, // base
             "stake",        // seed
             &authorized,
-            &stake_state::Lockup::default(),
+            &Lockup::default(),
             lamports,
         ),
         Some(&staker_pubkey),
@@ -213,8 +214,7 @@ fn test_stake_create_and_split_to_existing_system_account() {
         .expect("failed to create and delegate stake account");
 
     let split_stake_address =
-        Pubkey::create_with_seed(&staker_pubkey, "split_stake", &solana_stake_program::id())
-            .unwrap();
+        Pubkey::create_with_seed(&staker_pubkey, "split_stake", &stake::program::id()).unwrap();
 
     // First, put a system account where we want the new stake account
     let existing_lamports = 42;
@@ -226,7 +226,7 @@ fn test_stake_create_and_split_to_existing_system_account() {
         existing_lamports
     );
 
-    // Verify the split fails because the account is already in use
+    // Verify the split succeeds with lamports in the destination account
     let message = Message::new(
         &stake_instruction::split_with_seed(
             &stake_address, // original
@@ -238,16 +238,12 @@ fn test_stake_create_and_split_to_existing_system_account() {
         ),
         Some(&staker_keypair.pubkey()),
     );
-    assert_eq!(
-        bank_client
-            .send_and_confirm_message(&[&staker_keypair], message)
-            .unwrap_err()
-            .unwrap(),
-        TransactionError::InstructionError(0, SystemError::AccountAlreadyInUse.into())
-    );
+    bank_client
+        .send_and_confirm_message(&[&staker_keypair], message)
+        .expect("failed to split into account with lamports");
     assert_eq!(
         bank_client.get_balance(&split_stake_address).unwrap(),
-        existing_lamports
+        existing_lamports + lamports / 2
     );
 }
 
@@ -269,7 +265,7 @@ fn test_stake_account_lifetime() {
         &solana_sdk::pubkey::new_rand(),
         1_000_000,
     );
-    let bank = Bank::new(&genesis_config);
+    let bank = Bank::new_for_tests(&genesis_config);
     let mint_pubkey = mint_keypair.pubkey();
     let mut bank = Arc::new(bank);
     let bank_client = BankClient::new_shared(&bank);
@@ -293,7 +289,7 @@ fn test_stake_account_lifetime() {
         .send_and_confirm_message(&[&mint_keypair, &vote_keypair, &identity_keypair], message)
         .expect("failed to create vote account");
 
-    let authorized = stake_state::Authorized::auto(&stake_pubkey);
+    let authorized = Authorized::auto(&stake_pubkey);
     // Create stake account and delegate to vote account
     let message = Message::new(
         &stake_instruction::create_account_and_delegate_stake(
@@ -301,7 +297,7 @@ fn test_stake_account_lifetime() {
             &stake_pubkey,
             &vote_pubkey,
             &authorized,
-            &stake_state::Lockup::default(),
+            &Lockup::default(),
             1_000_000,
         ),
         Some(&mint_pubkey),
@@ -513,14 +509,13 @@ fn test_create_stake_account_from_seed() {
         &solana_sdk::pubkey::new_rand(),
         1_000_000,
     );
-    let bank = Bank::new(&genesis_config);
+    let bank = Bank::new_for_tests(&genesis_config);
     let mint_pubkey = mint_keypair.pubkey();
     let bank = Arc::new(bank);
     let bank_client = BankClient::new_shared(&bank);
 
     let seed = "test-string";
-    let stake_pubkey =
-        Pubkey::create_with_seed(&mint_pubkey, seed, &solana_stake_program::id()).unwrap();
+    let stake_pubkey = Pubkey::create_with_seed(&mint_pubkey, seed, &stake::program::id()).unwrap();
 
     // Create Vote Account
     let message = Message::new(
@@ -541,7 +536,7 @@ fn test_create_stake_account_from_seed() {
         .send_and_confirm_message(&[&mint_keypair, &vote_keypair, &identity_keypair], message)
         .expect("failed to create vote account");
 
-    let authorized = stake_state::Authorized::auto(&mint_pubkey);
+    let authorized = Authorized::auto(&mint_pubkey);
     // Create stake account and delegate to vote account
     let message = Message::new(
         &stake_instruction::create_account_with_seed_and_delegate_stake(
@@ -551,7 +546,7 @@ fn test_create_stake_account_from_seed() {
             seed,
             &vote_pubkey,
             &authorized,
-            &stake_state::Lockup::default(),
+            &Lockup::default(),
             1_000_000,
         ),
         Some(&mint_pubkey),
