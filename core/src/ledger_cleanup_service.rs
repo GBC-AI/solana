@@ -28,14 +28,20 @@ use {
 // - A validator to download a snapshot from a peer and boot from it
 // - To make sure that if a validator needs to reboot from its own snapshot, it has enough slots locally
 //   to catch back up to where it was when it stopped
-pub const DEFAULT_MAX_LEDGER_SHREDS: u64 = 200_000_000;
+
+toml_config::package_config! {
+    DEFAULT_MAX_LEDGER_SHREDS: u64,
+    DEFAULT_MIN_MAX_LEDGER_SHREDS: u64,
+    DEFAULT_PURGE_SLOT_INTERVAL: u64,
+}
+// pub const DEFAULT_MAX_LEDGER_SHREDS: u64 = 200_000_000;
 
 // Allow down to 50m, or 3.5 days at idle, 1hr at 50k load, around ~100GB
-pub const DEFAULT_MIN_MAX_LEDGER_SHREDS: u64 = 50_000_000;
+// pub const DEFAULT_MIN_MAX_LEDGER_SHREDS: u64 = 50_000_000;
 
 // Check for removing slots at this interval so we don't purge too often
 // and starve other blockstore users.
-pub const DEFAULT_PURGE_SLOT_INTERVAL: u64 = 512;
+// pub const DEFAULT_PURGE_SLOT_INTERVAL: u64 = 512;
 
 // Compacting at a slower interval than purging helps keep IOPS down.
 // Once a day should be ample
@@ -82,7 +88,7 @@ impl LedgerCleanupService {
                     &blockstore,
                     max_ledger_shreds,
                     &mut last_purge_slot,
-                    DEFAULT_PURGE_SLOT_INTERVAL,
+                    CFG.DEFAULT_PURGE_SLOT_INTERVAL,
                     &last_compact_slot,
                 ) {
                     match e {

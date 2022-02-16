@@ -45,9 +45,13 @@ use {
     },
 };
 
-pub const CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS: u64 = 15000;
+toml_config::package_config! {
+    CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS: u64,
+    CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS: u64,
+}
+// pub const CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS: u64 = 15000;
 // The maximum age of a value received over pull responses
-pub const CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS: u64 = 60000;
+// pub const CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS: u64 = 60000;
 // Retention period of hashes of received outdated values.
 const FAILED_INSERTS_RETENTION_MS: u64 = 20_000;
 // Do not pull from peers which have not been updated for this long.
@@ -205,8 +209,8 @@ impl Default for CrdsGossipPull {
         Self {
             pull_request_time: RwLock::new(LruCache::new(CRDS_UNIQUE_PUBKEY_CAPACITY)),
             failed_inserts: RwLock::default(),
-            crds_timeout: CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
-            msg_timeout: CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
+            crds_timeout: CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
+            msg_timeout: CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
             num_pulls: AtomicUsize::default(),
         }
     }
@@ -514,7 +518,7 @@ impl CrdsGossipPull {
         output_size_limit: usize, // Limit number of crds values returned.
         now: u64,
     ) -> Vec<Vec<CrdsValue>> {
-        let msg_timeout = CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
+        let msg_timeout = CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS;
         let jitter = rand::thread_rng().gen_range(0, msg_timeout / 4);
         //skip filters from callers that are too old
         let caller_wallclock_window =
@@ -1263,14 +1267,14 @@ pub(crate) mod tests {
 
         let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
             &solana_sdk::pubkey::new_rand(),
-            CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
+            CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
         )));
         dest_crds
             .write()
             .unwrap()
             .insert(
                 new,
-                CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
+                CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
                 GossipRoute::LocalMessage,
             )
             .unwrap();
@@ -1281,13 +1285,13 @@ pub(crate) mod tests {
             &dest_crds,
             &filters,
             usize::MAX,                      // output_size_limit
-            CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS, // now
+            CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS, // now
         );
         assert_eq!(rsp[0].len(), 0);
         assert_eq!(filters.len(), MIN_NUM_BLOOM_FILTERS);
         filters.extend({
             // Should return new value since caller is new.
-            let now = CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS + 1;
+            let now = CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS + 1;
             let caller = ContactInfo::new_localhost(&Pubkey::new_unique(), now);
             let caller = CrdsValue::new_unsigned(CrdsData::ContactInfo(caller));
             filters
@@ -1300,7 +1304,7 @@ pub(crate) mod tests {
             &dest_crds,
             &filters,
             usize::MAX, // output_size_limit
-            CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
+            CFG.CRDS_GOSSIP_PULL_MSG_TIMEOUT_MS,
         );
         assert_eq!(rsp.len(), 2 * MIN_NUM_BLOOM_FILTERS);
         // There should be only one non-empty response in the 2nd half.

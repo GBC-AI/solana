@@ -20,7 +20,7 @@ use {
     },
     solana_core::{
         broadcast_stage::BroadcastStageType,
-        consensus::{Tower, SWITCH_FORK_THRESHOLD, VOTE_THRESHOLD_DEPTH},
+        consensus::{Tower, CFG as CONSENSUS_CFG, SWITCH_FORK_THRESHOLD},
         optimistic_confirmation_verifier::OptimisticConfirmationVerifier,
         replay_stage::DUPLICATE_THRESHOLD,
         tower_storage::{FileTowerStorage, SavedTower, TowerStorage},
@@ -1616,7 +1616,7 @@ fn test_no_voting() {
         let last_slot = client
             .get_slot_with_commitment(CommitmentConfig::processed())
             .expect("Couldn't get slot");
-        if last_slot > 4 * VOTE_THRESHOLD_DEPTH as u64 {
+        if last_slot > 4 * CONSENSUS_CFG.VOTE_THRESHOLD_DEPTH as u64 {
             break;
         }
         sleep(Duration::from_secs(1));
@@ -1626,7 +1626,7 @@ fn test_no_voting() {
     let leader_pubkey = cluster.entry_point_info.id;
     let ledger_path = cluster.validators[&leader_pubkey].info.ledger_path.clone();
     let ledger = Blockstore::open(&ledger_path).unwrap();
-    for i in 0..2 * VOTE_THRESHOLD_DEPTH {
+    for i in 0..2 * CONSENSUS_CFG.VOTE_THRESHOLD_DEPTH {
         let meta = ledger.meta(i as u64).unwrap().unwrap();
         let parent = meta.parent_slot;
         let expected_parent = i.saturating_sub(1);

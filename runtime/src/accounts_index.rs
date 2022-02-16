@@ -39,7 +39,10 @@ use {
     thiserror::Error,
 };
 
-pub const ITER_BATCH_SIZE: usize = 1000;
+toml_config::package_config! {
+    ITER_BATCH_SIZE: usize, 
+}
+// pub const ITER_BATCH_SIZE: usize = 1000;
 pub const BINS_DEFAULT: usize = 8192;
 pub const BINS_FOR_TESTING: usize = 2; // we want > 1, but each bin is a few disk files with a disk based index, so fewer is better
 pub const BINS_FOR_BENCHMARKS: usize = 2;
@@ -773,14 +776,14 @@ impl<'a, T: IndexValue> Iterator for AccountsIndexIterator<'a, T> {
             return None;
         }
         let (start_bin, bin_range) = self.bin_start_and_range();
-        let mut chunk = Vec::with_capacity(ITER_BATCH_SIZE);
+        let mut chunk = Vec::with_capacity(CFG.ITER_BATCH_SIZE);
         'outer: for i in self.account_maps.iter().skip(start_bin).take(bin_range) {
             for (pubkey, account_map_entry) in Self::range(
                 &i.read().unwrap(),
                 (self.start_bound, self.end_bound),
                 self.collect_all_unsorted,
             ) {
-                if chunk.len() >= ITER_BATCH_SIZE && !self.collect_all_unsorted {
+                if chunk.len() >= CFG.ITER_BATCH_SIZE && !self.collect_all_unsorted {
                     break 'outer;
                 }
                 let item = (pubkey, account_map_entry);
@@ -3363,34 +3366,34 @@ pub mod tests {
 
     #[test]
     fn test_range_scan_accounts() {
-        let (index, mut pubkeys) = setup_accounts_index_keys(3 * ITER_BATCH_SIZE);
+        let (index, mut pubkeys) = setup_accounts_index_keys(3 * CFG.ITER_BATCH_SIZE);
         pubkeys.sort();
 
         run_test_range_indexes(&index, &pubkeys, None, None);
 
-        run_test_range_indexes(&index, &pubkeys, Some(ITER_BATCH_SIZE), None);
+        run_test_range_indexes(&index, &pubkeys, Some(CFG.ITER_BATCH_SIZE), None);
 
-        run_test_range_indexes(&index, &pubkeys, None, Some(2 * ITER_BATCH_SIZE as usize));
+        run_test_range_indexes(&index, &pubkeys, None, Some(2 * CFG.ITER_BATCH_SIZE as usize));
 
         run_test_range_indexes(
             &index,
             &pubkeys,
-            Some(ITER_BATCH_SIZE as usize),
-            Some(2 * ITER_BATCH_SIZE as usize),
+            Some(CFG.ITER_BATCH_SIZE as usize),
+            Some(2 * CFG.ITER_BATCH_SIZE as usize),
         );
 
         run_test_range_indexes(
             &index,
             &pubkeys,
-            Some(ITER_BATCH_SIZE as usize),
-            Some(2 * ITER_BATCH_SIZE as usize - 1),
+            Some(CFG.ITER_BATCH_SIZE as usize),
+            Some(2 * CFG.ITER_BATCH_SIZE as usize - 1),
         );
 
         run_test_range_indexes(
             &index,
             &pubkeys,
-            Some(ITER_BATCH_SIZE - 1_usize),
-            Some(2 * ITER_BATCH_SIZE as usize + 1),
+            Some(CFG.ITER_BATCH_SIZE - 1_usize),
+            Some(2 * CFG.ITER_BATCH_SIZE as usize + 1),
         );
     }
 
@@ -3414,9 +3417,9 @@ pub mod tests {
     fn test_scan_accounts() {
         run_test_scan_accounts(0);
         run_test_scan_accounts(1);
-        run_test_scan_accounts(ITER_BATCH_SIZE * 10);
-        run_test_scan_accounts(ITER_BATCH_SIZE * 10 - 1);
-        run_test_scan_accounts(ITER_BATCH_SIZE * 10 + 1);
+        run_test_scan_accounts(CFG.ITER_BATCH_SIZE * 10);
+        run_test_scan_accounts(CFG.ITER_BATCH_SIZE * 10 - 1);
+        run_test_scan_accounts(CFG.ITER_BATCH_SIZE * 10 + 1);
     }
 
     #[test]

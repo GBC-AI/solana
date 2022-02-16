@@ -14,7 +14,7 @@ use {
     rayon::{prelude::*, ThreadPool},
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::{
-        blockstore::{self, Blockstore, BlockstoreInsertionMetrics, MAX_DATA_SHREDS_PER_SLOT},
+        blockstore::{self, Blockstore, BlockstoreInsertionMetrics, CFG as BLOCKSTORE_CFG},
         leader_schedule_cache::LeaderScheduleCache,
         shred::{Nonce, Shred, ShredType},
     },
@@ -190,7 +190,7 @@ pub(crate) fn should_retransmit_and_persist(
         } else if shred.version() != shred_version {
             inc_new_counter_debug!("streamer-recv_window-incorrect_shred_version", 1);
             false
-        } else if shred.index() >= MAX_DATA_SHREDS_PER_SLOT as u32 {
+        } else if shred.index() >= BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT as u32 {
             inc_new_counter_warn!("streamer-recv_window-shred_index_overrun", 1);
             false
         } else if shred.data_header.size as usize > shred.payload.len() {
@@ -839,7 +839,7 @@ mod test {
 
         // with an invalid index, shred gets thrown out
         let mut bad_index_shred = shreds[0].clone();
-        bad_index_shred.common_header.index = (MAX_DATA_SHREDS_PER_SLOT + 1) as u32;
+        bad_index_shred.common_header.index = (BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT + 1) as u32;
         assert!(!should_retransmit_and_persist(
             &bad_index_shred,
             Some(bank.clone()),

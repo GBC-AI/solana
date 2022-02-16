@@ -95,8 +95,14 @@ const FLUSH_CACHE_RANDOM_THRESHOLD: usize = MAX_LOCKOUT_HISTORY;
 const SCAN_SLOT_PAR_ITER_THRESHOLD: usize = 4000;
 
 pub const DEFAULT_FILE_SIZE: u64 = PAGE_SIZE * 1024;
-pub const DEFAULT_NUM_THREADS: u32 = 8;
-pub const DEFAULT_NUM_DIRS: u32 = 4;
+
+toml_config::package_config! {
+    DEFAULT_NUM_THREADS: u32,
+    DEFAULT_NUM_DIRS: u32,
+}
+
+// pub const DEFAULT_NUM_THREADS: u32 = 8;
+// pub const DEFAULT_NUM_DIRS: u32 = 4;
 
 // When calculating hashes, it is helpful to break the pubkeys found into bins based on the pubkey value.
 // More bins means smaller vectors to sort, copy, etc.
@@ -1694,7 +1700,7 @@ impl AccountsDb {
         if paths_is_empty {
             // Create a temporary set of accounts directories, used primarily
             // for testing
-            let (temp_dirs, paths) = get_temp_accounts_paths(DEFAULT_NUM_DIRS).unwrap();
+            let (temp_dirs, paths) = get_temp_accounts_paths(CFG.DEFAULT_NUM_DIRS).unwrap();
             new.accounts_update_notifier = None;
             new.paths = paths;
             new.temp_paths = Some(temp_dirs);

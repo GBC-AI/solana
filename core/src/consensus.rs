@@ -81,9 +81,12 @@ impl SwitchForkDecision {
     }
 }
 
-pub const VOTE_THRESHOLD_DEPTH: usize = 8;
-pub const SWITCH_FORK_THRESHOLD: f64 = 0.38;
+toml_config::package_config! {
+    VOTE_THRESHOLD_DEPTH: usize, 
 
+}
+// pub const VOTE_THRESHOLD_DEPTH: usize = 8;
+pub const SWITCH_FORK_THRESHOLD: f64 = 0.38;
 pub type Result<T> = std::result::Result<T, TowerError>;
 
 pub type Stake = u64;
@@ -133,7 +136,7 @@ impl Default for Tower {
     fn default() -> Self {
         let mut tower = Self {
             node_pubkey: Pubkey::default(),
-            threshold_depth: VOTE_THRESHOLD_DEPTH,
+            threshold_depth: CFG.VOTE_THRESHOLD_DEPTH,
             threshold_size: VOTE_THRESHOLD_SIZE,
             vote_state: VoteState::default(),
             last_vote: Vote::default(),
@@ -2307,7 +2310,7 @@ pub mod test {
     #[test]
     fn test_check_vote_threshold_forks() {
         // Create the ancestor relationships
-        let ancestors = (0..=(VOTE_THRESHOLD_DEPTH + 1) as u64)
+        let ancestors = (0..=(CFG.VOTE_THRESHOLD_DEPTH + 1) as u64)
             .map(|slot| {
                 let slot_parents: HashSet<_> = (0..slot).collect();
                 (slot, slot_parents)
@@ -2320,20 +2323,20 @@ pub mod test {
         let total_stake = 4;
         let threshold_size = 0.67;
         let threshold_stake = (f64::ceil(total_stake as f64 * threshold_size)) as u64;
-        let tower_votes: Vec<Slot> = (0..VOTE_THRESHOLD_DEPTH as u64).collect();
+        let tower_votes: Vec<Slot> = (0..CFG.VOTE_THRESHOLD_DEPTH as u64).collect();
         let accounts = gen_stakes(&[
-            (threshold_stake, &[(VOTE_THRESHOLD_DEPTH - 2) as u64]),
+            (threshold_stake, &[(CFG.VOTE_THRESHOLD_DEPTH - 2) as u64]),
             (total_stake - threshold_stake, &tower_votes[..]),
         ]);
 
         // Initialize tower
-        let mut tower = Tower::new_for_tests(VOTE_THRESHOLD_DEPTH, threshold_size);
+        let mut tower = Tower::new_for_tests(CFG.VOTE_THRESHOLD_DEPTH, threshold_size);
 
         // CASE 1: Record the first VOTE_THRESHOLD tower votes for fork 2. We want to
         // evaluate a vote on slot VOTE_THRESHOLD_DEPTH. The nth most recent vote should be
         // for slot 0, which is common to all account vote states, so we should pass the
         // threshold check
-        let vote_to_evaluate = VOTE_THRESHOLD_DEPTH as u64;
+        let vote_to_evaluate = CFG.VOTE_THRESHOLD_DEPTH as u64;
         for vote in &tower_votes {
             tower.record_vote(*vote, Hash::default());
         }
@@ -2354,7 +2357,7 @@ pub mod test {
         // CASE 2: Now we want to evaluate a vote for slot VOTE_THRESHOLD_DEPTH + 1. This slot
         // will expire the vote in one of the vote accounts, so we should have insufficient
         // stake to pass the threshold
-        let vote_to_evaluate = VOTE_THRESHOLD_DEPTH as u64 + 1;
+        let vote_to_evaluate = CFG.VOTE_THRESHOLD_DEPTH as u64 + 1;
         let ComputedBankState {
             voted_stakes,
             total_stake,

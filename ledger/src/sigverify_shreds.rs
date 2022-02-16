@@ -26,7 +26,10 @@ use {
     std::{collections::HashMap, mem::size_of, sync::Arc},
 };
 
-pub const SIGN_SHRED_GPU_MIN: usize = 256;
+toml_config::package_config! {
+    SIGN_SHRED_GPU_MIN: usize,
+}
+// pub const SIGN_SHRED_GPU_MIN: usize = 256;
 
 lazy_static! {
     pub static ref SIGVERIFY_THREAD_POOL: ThreadPool = rayon::ThreadPoolBuilder::new()
@@ -362,7 +365,7 @@ pub fn sign_shreds_gpu(
     let pubkey_size = size_of::<Pubkey>();
     let api = perf_libs::api();
     let packet_count = count_packets_in_batches(batches);
-    if api.is_none() || packet_count < SIGN_SHRED_GPU_MIN || pinned_keypair.is_none() {
+    if api.is_none() || packet_count < CFG.SIGN_SHRED_GPU_MIN || pinned_keypair.is_none() {
         return sign_shreds_cpu(keypair, batches);
     }
     let api = api.unwrap();

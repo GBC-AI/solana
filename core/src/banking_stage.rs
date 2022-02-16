@@ -70,11 +70,12 @@ type PacketBatchAndOffsets = (PacketBatch, Vec<usize>, bool);
 pub type UnprocessedPacketBatches = VecDeque<PacketBatchAndOffsets>;
 
 /// Transaction forwarding
-pub const FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET: u64 = 2;
+
+// pub const FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET: u64 = 2;
 pub const HOLD_TRANSACTIONS_SLOT_OFFSET: u64 = 20;
 
 // Fixed thread size seems to be fastest on GCP setup
-pub const NUM_THREADS: u32 = 4;
+// pub const NUM_THREADS: u32 = 4;
 
 const TOTAL_BUFFERED_PACKETS: usize = 500_000;
 
@@ -82,6 +83,11 @@ const MAX_NUM_TRANSACTIONS_PER_BATCH: usize = 128;
 
 const NUM_VOTE_PROCESSING_THREADS: u32 = 2;
 const MIN_THREADS_BANKING: u32 = 1;
+
+toml_config::package_config! {
+    FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET: u64,
+    NUM_THREADS: u32,
+}
 
 #[derive(Debug, Default)]
 pub struct BankingStageStats {
@@ -647,11 +653,11 @@ impl BankingStage {
             let poh = poh_recorder.lock().unwrap();
             bank_start = poh.bank_start();
             (
-                poh.leader_after_n_slots(FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET),
+                poh.leader_after_n_slots(CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET),
                 PohRecorder::get_working_bank_if_not_expired(&bank_start.as_ref()),
                 poh.would_be_leader(HOLD_TRANSACTIONS_SLOT_OFFSET * DEFAULT_TICKS_PER_SLOT),
                 poh.would_be_leader(
-                    (FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET - 1) * DEFAULT_TICKS_PER_SLOT,
+                    (CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET - 1) * DEFAULT_TICKS_PER_SLOT,
                 ),
             )
         };
@@ -817,8 +823,8 @@ impl BankingStage {
     pub fn num_threads() -> u32 {
         cmp::max(
             env::var("SOLANA_BANKING_THREADS")
-                .map(|x| x.parse().unwrap_or(NUM_THREADS))
-                .unwrap_or(NUM_THREADS),
+                .map(|x| x.parse().unwrap_or(CFG.NUM_THREADS))
+                .unwrap_or(CFG.NUM_THREADS),
             NUM_VOTE_PROCESSING_THREADS + MIN_THREADS_BANKING,
         )
     }
@@ -1263,7 +1269,7 @@ impl BankingStage {
             &filter,
             (MAX_PROCESSING_AGE)
                 .saturating_sub(max_tx_fwd_delay)
-                .saturating_sub(FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET as usize),
+                .saturating_sub(CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET as usize),
             &mut error_counters,
         );
 
@@ -1551,7 +1557,7 @@ where
     if let Some(leader_pubkey) = poh_recorder
         .lock()
         .unwrap()
-        .leader_after_n_slots(FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET)
+        .leader_after_n_slots(CFG.FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET)
     {
         cluster_info.lookup_contact_info(&leader_pubkey, port_selector)
     } else {

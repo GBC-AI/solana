@@ -46,6 +46,8 @@ solana-sdk = { path = "../sdk", version = "=1.10.0" }
 solana-version = { path = "../version", version = "=1.10.0" }
 solana-vote-program = { path = "../programs/vote", version = "=1.10.0" }
 thiserror = "1.0"
+lazy_static = "1.4.0"
+toml-config = { path = "../toml-config" }
 
 [dev-dependencies]
 num_cpus = "1.13.1"

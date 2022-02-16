@@ -6,8 +6,13 @@ use {
     std::{thread::sleep, time::Duration},
 };
 
-pub const NUM_BAD_SLOTS: u64 = 10;
-pub const SLOT_TO_RESOLVE: u64 = 32;
+// pub const NUM_BAD_SLOTS: u64 = 10;
+// pub const SLOT_TO_RESOLVE: u64 = 32;
+
+toml_config::package_config! {
+    NUM_BAD_SLOTS: u64,
+    SLOT_TO_RESOLVE: u64,
+}
 
 #[derive(Clone)]
 pub(super) struct FailEntryVerificationBroadcastRun {
@@ -58,7 +63,7 @@ impl BroadcastRun for FailEntryVerificationBroadcastRun {
 
         // 2) If we're past SLOT_TO_RESOLVE, insert the correct shreds so validators can repair
         // and make progress
-        if bank.slot() > SLOT_TO_RESOLVE && !self.good_shreds.is_empty() {
+        if bank.slot() > CFG.SLOT_TO_RESOLVE && !self.good_shreds.is_empty() {
             info!("Resolving bad shreds");
             let mut shreds = vec![];
             std::mem::swap(&mut shreds, &mut self.good_shreds);
@@ -68,7 +73,7 @@ impl BroadcastRun for FailEntryVerificationBroadcastRun {
         // 3) Convert entries to shreds + generate coding shreds. Set a garbage PoH on the last entry
         // in the slot to make verification fail on validators
         let last_entries = {
-            if last_tick_height == bank.max_tick_height() && bank.slot() < NUM_BAD_SLOTS {
+            if last_tick_height == bank.max_tick_height() && bank.slot() < CFG.NUM_BAD_SLOTS {
                 let good_last_entry = receive_results.entries.pop().unwrap();
                 let mut bad_last_entry = good_last_entry.clone();
                 bad_last_entry.hash = Hash::default();

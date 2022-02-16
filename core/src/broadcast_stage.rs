@@ -14,7 +14,7 @@ use {
     },
     crossbeam_channel::{unbounded, Receiver, RecvError, RecvTimeoutError, Sender},
     itertools::Itertools,
-    solana_gossip::cluster_info::{ClusterInfo, ClusterInfoError, DATA_PLANE_FANOUT},
+    solana_gossip::cluster_info::{ClusterInfo, ClusterInfoError, CFG as CLUSTER_CFG},
     solana_ledger::{blockstore::Blockstore, shred::Shred},
     solana_measure::measure::Measure,
     solana_metrics::{inc_new_counter_error, inc_new_counter_info},
@@ -427,7 +427,7 @@ pub fn broadcast_shreds(
                 repeat(&shred.payload).zip(cluster_nodes.get_broadcast_addrs(
                     shred,
                     &root_bank,
-                    DATA_PLANE_FANOUT,
+                    CLUSTER_CFG.DATA_PLANE_FANOUT,
                     socket_addr_space,
                 ))
             })

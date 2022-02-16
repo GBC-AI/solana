@@ -3,7 +3,7 @@ use {
     crate::cluster_nodes::ClusterNodesCache,
     itertools::Itertools,
     solana_entry::entry::Entry,
-    solana_gossip::cluster_info::DATA_PLANE_FANOUT,
+    solana_gossip::cluster_info::CFG as CLUSTER_CFG,
     solana_ledger::shred::Shredder,
     solana_sdk::{
         hash::Hash,
@@ -287,7 +287,7 @@ impl BroadcastRun for BroadcastDuplicatesRun {
             .iter()
             .filter_map(|shred| {
                 let addr = cluster_nodes
-                    .get_broadcast_addrs(shred, &root_bank, DATA_PLANE_FANOUT, socket_addr_space)
+                    .get_broadcast_addrs(shred, &root_bank, CLUSTER_CFG.DATA_PLANE_FANOUT, socket_addr_space)
                     .first()
                     .copied()?;
                 let node = nodes.iter().find(|node| node.tvu == addr)?;

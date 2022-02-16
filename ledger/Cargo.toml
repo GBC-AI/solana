@@ -29,6 +29,7 @@ rand = "0.7.0"
 rand_chacha = "0.2.2"
 rayon = "1.5.1"
 serde = "1.0.136"
+serde_derive = "1.0.103"
 serde_bytes = "0.11.5"
 sha2 = "0.10.1"
 solana-bpf-loader-program = { path = "../programs/bpf_loader", version = "=1.10.0" }
@@ -52,6 +53,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 trees = "0.4.2"
 reed-solomon-erasure = { version = "5.0.1", features = ["simd-accel"] }
+toml-config = { path = "../toml-config" }
+
 
 [dependencies.rocksdb]
 # Avoid the vendored bzip2 within rocksdb-sys that can cause linker conflicts

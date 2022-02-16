@@ -7,7 +7,7 @@
 use {
     crossbeam_channel::RecvTimeoutError,
     rayon::ThreadPool,
-    solana_gossip::cluster_info::{ClusterInfo, MAX_SNAPSHOT_HASHES},
+    solana_gossip::cluster_info::{ClusterInfo, CFG as CLUSTER_CFG},
     solana_measure::measure::Measure,
     solana_runtime::{
         accounts_db::{self, AccountsDb},
@@ -177,7 +177,7 @@ impl AccountsHashVerifier {
             hashes.push((accounts_package.slot, hash));
         }
 
-        while hashes.len() > MAX_SNAPSHOT_HASHES {
+        while hashes.len() > CLUSTER_CFG.MAX_SNAPSHOT_HASHES {
             hashes.remove(0);
         }
 
@@ -353,7 +353,7 @@ mod tests {
             incremental_snapshot_archive_interval_slots: Slot::MAX,
             ..SnapshotConfig::default()
         };
-        for i in 0..MAX_SNAPSHOT_HASHES + 1 {
+        for i in 0..CLUSTER_CFG.MAX_SNAPSHOT_HASHES + 1 {
             let accounts_package = AccountsPackage {
                 slot: full_snapshot_archive_interval_slots + i as u64,
                 block_height: full_snapshot_archive_interval_slots + i as u64,
@@ -395,17 +395,17 @@ mod tests {
             .get_accounts_hash_for_node(&keypair.pubkey(), |c| c.clone())
             .unwrap();
         info!("{:?}", cluster_hashes);
-        assert_eq!(hashes.len(), MAX_SNAPSHOT_HASHES);
-        assert_eq!(cluster_hashes.len(), MAX_SNAPSHOT_HASHES);
+        assert_eq!(hashes.len(), CLUSTER_CFG.MAX_SNAPSHOT_HASHES);
+        assert_eq!(cluster_hashes.len(), CLUSTER_CFG.MAX_SNAPSHOT_HASHES);
         assert_eq!(
             cluster_hashes[0],
             (full_snapshot_archive_interval_slots + 1, hash(&[1]))
         );
         assert_eq!(
-            cluster_hashes[MAX_SNAPSHOT_HASHES - 1],
+            cluster_hashes[CLUSTER_CFG.MAX_SNAPSHOT_HASHES - 1],
             (
-                full_snapshot_archive_interval_slots + MAX_SNAPSHOT_HASHES as u64,
-                hash(&[MAX_SNAPSHOT_HASHES as u8])
+                full_snapshot_archive_interval_slots + CLUSTER_CFG.MAX_SNAPSHOT_HASHES as u64,
+                hash(&[CLUSTER_CFG.MAX_SNAPSHOT_HASHES as u8])
             )
         );
     }

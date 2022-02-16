@@ -22,7 +22,7 @@ use {
         rpc_request::MAX_MULTIPLE_ACCOUNTS,
     },
     solana_core::{
-        ledger_cleanup_service::{DEFAULT_MAX_LEDGER_SHREDS, DEFAULT_MIN_MAX_LEDGER_SHREDS},
+        ledger_cleanup_service::CFG as LEDGER_CLEANUP_CFG,
         system_monitor_service::SystemMonitorService,
         tower_storage,
         tpu::DEFAULT_TPU_COALESCE_MS,
@@ -2412,12 +2412,12 @@ pub fn main() {
     if matches.is_present("limit_ledger_size") {
         let limit_ledger_size = match matches.value_of("limit_ledger_size") {
             Some(_) => value_t_or_exit!(matches, "limit_ledger_size", u64),
-            None => DEFAULT_MAX_LEDGER_SHREDS,
+            None => LEDGER_CLEANUP_CFG.DEFAULT_MAX_LEDGER_SHREDS,
         };
-        if limit_ledger_size < DEFAULT_MIN_MAX_LEDGER_SHREDS {
+        if limit_ledger_size < LEDGER_CLEANUP_CFG.DEFAULT_MIN_MAX_LEDGER_SHREDS {
             eprintln!(
                 "The provided --limit-ledger-size value was too small, the minimum value is {}",
-                DEFAULT_MIN_MAX_LEDGER_SHREDS
+                LEDGER_CLEANUP_CFG.DEFAULT_MIN_MAX_LEDGER_SHREDS
             );
             exit(1);
         }

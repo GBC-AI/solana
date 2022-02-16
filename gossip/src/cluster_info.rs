@@ -21,7 +21,7 @@ use {
         crds::{Crds, Cursor, GossipRoute},
         crds_gossip::CrdsGossip,
         crds_gossip_error::CrdsGossipError,
-        crds_gossip_pull::{CrdsFilter, ProcessPullStats, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS},
+        crds_gossip_pull::{CrdsFilter, ProcessPullStats, CFG as GOSSIP_PULL_CFG},
         crds_value::{
             self, CrdsData, CrdsValue, CrdsValueLabel, EpochSlotsIndex, IncrementalSnapshotHashes,
             LowestSlot, NodeInstance, SnapshotHashes, Version, Vote, MAX_WALLCLOCK,
@@ -91,16 +91,28 @@ use {
     },
 };
 
+toml_config::package_config! {
+    DATA_PLANE_FANOUT: usize,
+    GOSSIP_SLEEP_MILLIS: u64,
+    MAX_CRDS_OBJECT_SIZE: usize,
+    MAX_SNAPSHOT_HASHES: usize,
+
+}
+
+toml_config::derived_values! {
+    MAX_BLOOM_SIZE: usize = CFG.MAX_CRDS_OBJECT_SIZE;
+}
+
 pub const VALIDATOR_PORT_RANGE: PortRange = (8000, 10_000);
 pub const MINIMUM_VALIDATOR_PORT_RANGE_WIDTH: u16 = 11; // VALIDATOR_PORT_RANGE must be at least this wide
 
 /// The Data plane fanout size, also used as the neighborhood size
-pub const DATA_PLANE_FANOUT: usize = 200;
+// pub const DATA_PLANE_FANOUT: usize = 200;
 /// milliseconds we sleep for between gossip requests
-pub const GOSSIP_SLEEP_MILLIS: u64 = 100;
+// pub const GOSSIP_SLEEP_MILLIS: u64 = 100;
 /// The maximum size of a bloom filter
-pub const MAX_BLOOM_SIZE: usize = MAX_CRDS_OBJECT_SIZE;
-pub const MAX_CRDS_OBJECT_SIZE: usize = 928;
+// pub const MAX_BLOOM_SIZE: usize = CFG.MAX_CRDS_OBJECT_SIZE;
+// pub const MAX_CRDS_OBJECT_SIZE: usize = 928;
 /// A hard limit on incoming gossip messages
 /// Chosen to be able to handle 1Gbps of pure gossip traffic
 /// 128MB/PACKET_DATA_SIZE
@@ -114,7 +126,7 @@ const DUPLICATE_SHRED_MAX_PAYLOAD_SIZE: usize = PACKET_DATA_SIZE - 115;
 /// such that the serialized size of the push/pull message stays below
 /// PACKET_DATA_SIZE.
 // TODO: Update this to 26 once payload sizes are upgraded across fleet.
-pub const MAX_SNAPSHOT_HASHES: usize = 16;
+// pub const MAX_SNAPSHOT_HASHES: usize = 16;
 /// Maximum number of hashes in IncrementalSnapshotHashes a node publishes
 /// such that the serialized size of the push/pull message stays below
 /// PACKET_DATA_SIZE.
@@ -932,7 +944,7 @@ impl ClusterInfo {
     }
 
     pub fn push_accounts_hashes(&self, accounts_hashes: Vec<(Slot, Hash)>) {
-        if accounts_hashes.len() > MAX_SNAPSHOT_HASHES {
+        if accounts_hashes.len() > CFG.MAX_SNAPSHOT_HASHES {
             warn!(
                 "accounts hashes too large, ignored: {}",
                 accounts_hashes.len(),
@@ -945,7 +957,7 @@ impl ClusterInfo {
     }
 
     pub fn push_snapshot_hashes(&self, snapshot_hashes: Vec<(Slot, Hash)>) {
-        if snapshot_hashes.len() > MAX_SNAPSHOT_HASHES {
+        if snapshot_hashes.len() > CFG.MAX_SNAPSHOT_HASHES {
             warn!(
                 "snapshot hashes too large, ignored: {}",
                 snapshot_hashes.len(),
@@ -1359,7 +1371,8 @@ impl ClusterInfo {
         thread_pool: &ThreadPool,
         pulls: &mut Vec<(ContactInfo, Vec<CrdsFilter>)>,
     ) {
-        const THROTTLE_DELAY: u64 = CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2;
+        let THROTTLE_DELAY: u64 = GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2;
+  
         let entrypoint = {
             let mut entrypoints = self.entrypoints.write().unwrap();
             let entrypoint = match entrypoints.choose_mut(&mut rand::thread_rng()) {
@@ -1388,7 +1401,7 @@ impl ClusterInfo {
                 let _st = ScopedTimer::from(&self.stats.entrypoint2);
                 self.gossip
                     .pull
-                    .build_crds_filters(thread_pool, &self.gossip.crds, MAX_BLOOM_SIZE)
+                    .build_crds_filters(thread_pool, &self.gossip.crds, *MAX_BLOOM_SIZE)
             }
         };
         self.stats.pull_from_entrypoint_count.add_relaxed(1);
@@ -1466,7 +1479,7 @@ impl ClusterInfo {
                 now,
                 gossip_validators,
                 stakes,
-                MAX_BLOOM_SIZE,
+                *MAX_BLOOM_SIZE,
                 &self.ping_cache,
                 &mut pings,
                 &self.socket_addr_space,
@@ -1771,13 +1784,13 @@ impl ClusterInfo {
                     entrypoints_processed = entrypoints_processed || self.process_entrypoints();
                     //TODO: possibly tune this parameter
                     //we saw a deadlock passing an self.read().unwrap().timeout into sleep
-                    if start - last_push > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
+                    if start - last_push > GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {
                         self.push_self(&stakes, gossip_validators.as_ref());
                         last_push = timestamp();
                     }
                     let elapsed = timestamp() - start;
-                    if GOSSIP_SLEEP_MILLIS > elapsed {
-                        let time_left = GOSSIP_SLEEP_MILLIS - elapsed;
+                    if CFG.GOSSIP_SLEEP_MILLIS > elapsed {
+                        let time_left = CFG.GOSSIP_SLEEP_MILLIS - elapsed;
                         sleep(Duration::from_millis(time_left));
                     }
                     generate_pull_requests = !generate_pull_requests;
@@ -1992,7 +2005,7 @@ impl ClusterInfo {
                 let age = now.saturating_sub(response.wallclock());
                 let score = DEFAULT_EPOCH_DURATION_MS
                     .saturating_sub(age)
-                    .div(CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS)
+                    .div(GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS)
                     .max(1);
                 let score = if stakes.contains_key(&response.pubkey()) {
                     2 * score
@@ -3564,7 +3577,7 @@ mod tests {
                 timestamp(),
                 None,
                 &HashMap::new(),
-                MAX_BLOOM_SIZE,
+                *MAX_BLOOM_SIZE,
                 &cluster_info.ping_cache,
                 &mut pings,
                 &cluster_info.socket_addr_space,
@@ -3995,7 +4008,7 @@ mod tests {
         check_pull_request_size(CrdsFilter::new_rand(1000, 10));
         check_pull_request_size(CrdsFilter::new_rand(1000, 1000));
         check_pull_request_size(CrdsFilter::new_rand(100_000, 1000));
-        check_pull_request_size(CrdsFilter::new_rand(100_000, MAX_BLOOM_SIZE));
+        check_pull_request_size(CrdsFilter::new_rand(100_000, *MAX_BLOOM_SIZE));
     }
 
     fn check_pull_request_size(filter: CrdsFilter) {
@@ -4130,7 +4143,7 @@ mod tests {
     #[test]
     fn test_max_bloom_size() {
         // check that the constant fits into the dynamic size
-        assert!(MAX_BLOOM_SIZE <= max_bloom_size());
+        assert!(*MAX_BLOOM_SIZE <= max_bloom_size());
     }
 
     #[test]
@@ -4510,7 +4523,7 @@ mod tests {
         .take(NO_ENTRIES)
         .collect();
         let mut timeouts = HashMap::new();
-        timeouts.insert(Pubkey::default(), CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS * 4);
+        timeouts.insert(Pubkey::default(), GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS * 4);
         assert_eq!(
             (0, 0, NO_ENTRIES),
             cluster_info.handle_pull_response(&entrypoint_pubkey, data, &timeouts)

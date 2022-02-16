@@ -1,6 +1,6 @@
 use {
     solana_gossip::cluster_info::{
-        ClusterInfo, MAX_INCREMENTAL_SNAPSHOT_HASHES, MAX_SNAPSHOT_HASHES,
+        ClusterInfo, MAX_INCREMENTAL_SNAPSHOT_HASHES, CFG as CLUSTER_CFG,
     },
     solana_perf::thread::renice_this_thread,
     solana_runtime::{
@@ -40,7 +40,7 @@ impl SnapshotPackagerService {
         let exit = exit.clone();
         let cluster_info = cluster_info.clone();
         let max_full_snapshot_hashes = std::cmp::min(
-            MAX_SNAPSHOT_HASHES,
+            CLUSTER_CFG.MAX_SNAPSHOT_HASHES,
             snapshot_config.maximum_full_snapshot_archives_to_retain,
         );
         let max_incremental_snapshot_hashes = std::cmp::min(

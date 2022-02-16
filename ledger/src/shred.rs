@@ -50,7 +50,7 @@
 //! payload can fit into one coding shred / packet.
 
 use {
-    crate::{blockstore::MAX_DATA_SHREDS_PER_SLOT, erasure::Session},
+    crate::{blockstore::CFG as BLOCKSTORE_CFG, erasure::Session},
     bincode::config::Options,
     num_derive::FromPrimitive,
     num_traits::FromPrimitive,
@@ -1160,7 +1160,7 @@ pub fn get_shred_slot_index_type(
         }
     };
 
-    if index >= MAX_DATA_SHREDS_PER_SLOT as u32 {
+    if index >= BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT as u32 {
         stats.index_out_of_bounds += 1;
         return None;
     }

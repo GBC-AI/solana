@@ -196,7 +196,7 @@ pub mod test {
     use {
         super::*,
         solana_ledger::{
-            blockstore::{Blockstore, MAX_TURBINE_PROPAGATION_IN_MS},
+            blockstore::{Blockstore, CFG as BLOCKSTORE_CFG},
             get_tmp_ledger_path,
         },
         solana_sdk::hash::Hash,
@@ -252,7 +252,7 @@ pub mod test {
             Hash::default(),
         );
         let heaviest_subtree_fork_choice = HeaviestSubtreeForkChoice::new_from_tree(forks);
-        sleep(Duration::from_millis(MAX_TURBINE_PROPAGATION_IN_MS));
+        sleep(Duration::from_millis(BLOCKSTORE_CFG.MAX_TURBINE_PROPAGATION_IN_MS));
         let mut slot_meta_cache = HashMap::default();
         let mut processed_slots = HashSet::default();
         let repairs = get_closest_completion(

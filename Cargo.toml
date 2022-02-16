@@ -82,6 +82,7 @@ members = [
     "client-test",
     "zk-token-sdk",
     "programs/zk-token-proof",
+    "toml-config",
 ]
 
 exclude = [

@@ -12,7 +12,7 @@ use {
     crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Select, Sender},
     log::*,
     solana_gossip::{
-        cluster_info::{ClusterInfo, GOSSIP_SLEEP_MILLIS},
+        cluster_info::{ClusterInfo, CFG},
         crds::Cursor,
     },
     solana_ledger::blockstore::Blockstore,
@@ -65,6 +65,7 @@ pub type GossipVerifiedVoteHashSender = Sender<(Pubkey, Slot, Hash)>;
 pub type GossipVerifiedVoteHashReceiver = Receiver<(Pubkey, Slot, Hash)>;
 pub type GossipDuplicateConfirmedSlotsSender = Sender<ThresholdConfirmedSlots>;
 pub type GossipDuplicateConfirmedSlotsReceiver = Receiver<ThresholdConfirmedSlots>;
+
 
 const THRESHOLDS_TO_CHECK: [f64; 2] = [DUPLICATE_THRESHOLD, VOTE_THRESHOLD_SIZE];
 const BANK_SEND_VOTES_LOOP_SLEEP_MS: u128 = 10;
@@ -284,7 +285,7 @@ impl ClusterInfoVoteListener {
                 verified_vote_transactions_sender.send(vote_txs)?;
                 verified_vote_label_packets_sender.send(packets)?;
             }
-            sleep(Duration::from_millis(GOSSIP_SLEEP_MILLIS));
+            sleep(Duration::from_millis(CFG.GOSSIP_SLEEP_MILLIS));
         }
         Ok(())
     }

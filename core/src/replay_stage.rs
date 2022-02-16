@@ -40,7 +40,7 @@ use {
     },
     solana_measure::measure::Measure,
     solana_metrics::inc_new_counter_info,
-    solana_poh::poh_recorder::{PohLeaderStatus, PohRecorder, GRACE_TICKS_FACTOR, MAX_GRACE_SLOTS},
+    solana_poh::poh_recorder::{PohLeaderStatus, PohRecorder, CFG as POH_CFG},
     solana_program_runtime::timings::ExecuteTimings,
     solana_rpc::{
         optimistically_confirmed_bank_tracker::{BankNotification, BankNotificationSender},
@@ -78,10 +78,16 @@ use {
 };
 
 pub const MAX_ENTRY_RECV_PER_ITER: usize = 512;
-pub const SUPERMINORITY_THRESHOLD: f64 = 1f64 / 3f64;
+
+toml_config::package_config! {
+    SUPERMINORITY_THRESHOLD: f64,
+}
+// pub const SUPERMINORITY_THRESHOLD: f64 = 1f64 / 3f64;
 pub const MAX_UNCONFIRMED_SLOTS: usize = 5;
 pub const DUPLICATE_LIVENESS_THRESHOLD: f64 = 0.1;
 pub const DUPLICATE_THRESHOLD: f64 = 1.0 - SWITCH_FORK_THRESHOLD - DUPLICATE_LIVENESS_THRESHOLD;
+
+
 const MAX_VOTE_SIGNATURES: usize = 200;
 const MAX_VOTE_REFRESH_INTERVAL_MILLIS: usize = 5000;
 
@@ -2057,7 +2063,7 @@ impl ReplayStage {
             bank.slot(),
             bank,
             Some(blockstore),
-            GRACE_TICKS_FACTOR * MAX_GRACE_SLOTS,
+            POH_CFG.GRACE_TICKS_FACTOR * POH_CFG.MAX_GRACE_SLOTS,
         );
         poh_recorder
             .lock()
@@ -2740,7 +2746,7 @@ impl ReplayStage {
         if leader_propagated_stats.total_epoch_stake == 0
             || leader_propagated_stats.propagated_validators_stake as f64
                 / leader_propagated_stats.total_epoch_stake as f64
-                > SUPERMINORITY_THRESHOLD
+                > CFG.SUPERMINORITY_THRESHOLD
         {
             leader_propagated_stats.is_propagated = true;
             did_newly_reach_threshold = true

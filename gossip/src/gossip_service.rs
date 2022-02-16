@@ -293,7 +293,7 @@ fn spy(
             info!("discovering...\n{}", spy_ref.contact_info_trace());
         }
         sleep(Duration::from_millis(
-            crate::cluster_info::GOSSIP_SLEEP_MILLIS,
+            crate::cluster_info::CFG.GOSSIP_SLEEP_MILLIS,
         ));
         i += 1;
     }

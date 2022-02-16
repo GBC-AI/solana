@@ -18,7 +18,7 @@ use {
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
     solana_client::rpc_response::SlotUpdate,
     solana_gossip::{
-        cluster_info::{ClusterInfo, DATA_PLANE_FANOUT},
+        cluster_info::{ClusterInfo, CFG as CLUSTER_CFG},
         contact_info::ContactInfo,
     },
     solana_ledger::{
@@ -283,7 +283,7 @@ fn retransmit(
         let cluster_nodes =
             cluster_nodes_cache.get(shred_slot, &root_bank, &working_bank, cluster_info);
         let addrs: Vec<_> = cluster_nodes
-            .get_retransmit_addrs(slot_leader, shred, &root_bank, DATA_PLANE_FANOUT)
+            .get_retransmit_addrs(slot_leader, shred, &root_bank, CLUSTER_CFG.DATA_PLANE_FANOUT)
             .into_iter()
             .filter(|addr| ContactInfo::is_valid_address(addr, socket_addr_space))
             .collect();

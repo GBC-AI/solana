@@ -10,8 +10,8 @@ use {
         crds::GossipRoute,
         crds_gossip::*,
         crds_gossip_error::CrdsGossipError,
-        crds_gossip_pull::{ProcessPullStats, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS},
-        crds_gossip_push::CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS,
+        crds_gossip_pull::{ProcessPullStats, CFG as GOSSIP_PULL_CFG},
+        crds_gossip_push::CFG as GOSSIP_PUSH_CFG,
         crds_value::{CrdsData, CrdsValue, CrdsValueLabel},
         ping_pong::PingCache,
     },
@@ -424,7 +424,7 @@ fn network_run_push(
                 }
             }
         }
-        if now % CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS == 0 && now > 0 {
+        if now % GOSSIP_PUSH_CFG.CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS == 0 && now > 0 {
             network_values.par_iter().for_each(|node| {
                 let node_pubkey = node.keypair.pubkey();
                 node.gossip.refresh_push_active_set(
@@ -471,7 +471,7 @@ fn network_run_pull(
     let num = network.len();
     let network_values: Vec<Node> = network.values().cloned().collect();
     let mut timeouts = HashMap::new();
-    timeouts.insert(Pubkey::default(), CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS);
+    timeouts.insert(Pubkey::default(), GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS);
     for node in &network_values {
         let mut ping_cache = node.ping_cache.lock().unwrap();
         for other in &network_values {
@@ -500,7 +500,7 @@ fn network_run_pull(
                             now,
                             None,
                             &HashMap::new(),
-                            cluster_info::MAX_BLOOM_SIZE,
+                            *cluster_info::MAX_BLOOM_SIZE,
                             from.ping_cache.deref(),
                             &mut pings,
                             &SocketAddrSpace::Unspecified,

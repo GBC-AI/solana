@@ -41,15 +41,26 @@ use {
     },
 };
 
-pub const CRDS_GOSSIP_NUM_ACTIVE: usize = 30;
-pub const CRDS_GOSSIP_PUSH_FANOUT: usize = 6;
+//pub const CRDS_GOSSIP_NUM_ACTIVE: usize = 30;
+// pub const CRDS_GOSSIP_PUSH_FANOUT: usize = 6;
+
 // With a fanout of 6, a 1000 node cluster should only take ~4 hops to converge.
 // However since pushes are stake weighed, some trailing nodes
 // might need more time to receive values. 30 seconds should be plenty.
-pub const CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS: u64 = 30000;
-pub const CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS: u64 = 500;
-pub const CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT: f64 = 0.15;
-pub const CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES: usize = 3;
+
+// pub const CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS: u64 = 30000;
+// pub const CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS: u64 = 500;
+// pub const CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT: f64 = 0.15;
+
+toml_config::package_config! {
+    CRDS_GOSSIP_NUM_ACTIVE: usize,
+    CRDS_GOSSIP_PUSH_FANOUT: usize,
+    CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS: u64,
+    CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS: u64,
+    CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES: usize,
+    CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT: f64,
+}
+//pub const CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES: usize = 3;
 // Do not push to peers which have not been updated for this long.
 const PUSH_ACTIVE_TIMEOUT_MS: u64 = 60_000;
 
@@ -91,10 +102,10 @@ impl Default for CrdsGossipPush {
             crds_cursor: Mutex::default(),
             received_cache: Mutex::default(),
             last_pushed_to: RwLock::new(LruCache::new(CRDS_UNIQUE_PUBKEY_CAPACITY)),
-            num_active: CRDS_GOSSIP_NUM_ACTIVE,
-            push_fanout: CRDS_GOSSIP_PUSH_FANOUT,
-            msg_timeout: CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS,
-            prune_timeout: CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS,
+            num_active: CFG.CRDS_GOSSIP_NUM_ACTIVE,
+            push_fanout: CFG.CRDS_GOSSIP_PUSH_FANOUT,
+            msg_timeout: CFG.CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS,
+            prune_timeout: CFG.CRDS_GOSSIP_PRUNE_MSG_TIMEOUT_MS,
             num_total: AtomicUsize::default(),
             num_old: AtomicUsize::default(),
             num_pushes: AtomicUsize::default(),
@@ -109,7 +120,7 @@ impl CrdsGossipPush {
 
     fn prune_stake_threshold(self_stake: u64, origin_stake: u64) -> u64 {
         let min_path_stake = self_stake.min(origin_stake);
-        ((CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT * min_path_stake as f64).round() as u64).max(1)
+        ((CFG.CRDS_GOSSIP_PRUNE_STAKE_THRESHOLD_PCT * min_path_stake as f64).round() as u64).max(1)
     }
 
     pub(crate) fn prune_received_cache_many<I>(
@@ -183,7 +194,7 @@ impl CrdsGossipPush {
             keep.insert(peer);
             peer_stake_sum += stake;
             if peer_stake_sum >= prune_stake_threshold
-                && keep.len() >= CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES
+                && keep.len() >= CFG.CRDS_GOSSIP_PRUNE_MIN_INGRESS_NODES
             {
                 break;
             }

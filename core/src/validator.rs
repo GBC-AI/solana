@@ -30,7 +30,7 @@ use {
             DEFAULT_CONTACT_SAVE_INTERVAL_MILLIS,
         },
         contact_info::ContactInfo,
-        crds_gossip_pull::CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
+        crds_gossip_pull::CFG as GOSSIP_PULL_CFG,
         gossip_service::GossipService,
     },
     solana_ledger::{
@@ -44,7 +44,7 @@ use {
     solana_measure::measure::Measure,
     solana_metrics::datapoint_info,
     solana_poh::{
-        poh_recorder::{PohRecorder, GRACE_TICKS_FACTOR, MAX_GRACE_SLOTS},
+        poh_recorder::{PohRecorder, CFG as POH_CFG},
         poh_service::{self, PohService},
     },
     solana_replica_lib::{
@@ -584,7 +584,7 @@ impl Validator {
                 bank.slot(),
                 &bank,
                 Some(&blockstore),
-                GRACE_TICKS_FACTOR * MAX_GRACE_SLOTS,
+                POH_CFG.GRACE_TICKS_FACTOR * POH_CFG.MAX_GRACE_SLOTS,
             ),
             bank.ticks_per_slot(),
             &id,
@@ -1628,7 +1628,7 @@ fn get_stake_percent_in_gossip(bank: &Bank, cluster_info: &ClusterInfo, log: boo
         .filter(|node| {
             let age = now.saturating_sub(node.wallclock);
             // Contact infos are refreshed twice during this period.
-            age < CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+            age < GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
         })
         .map(|node| (node.id, node))
         .collect();

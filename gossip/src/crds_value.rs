@@ -1,6 +1,6 @@
 use {
     crate::{
-        cluster_info::MAX_SNAPSHOT_HASHES,
+        cluster_info::CFG as CLUSTER_CFG,
         contact_info::ContactInfo,
         deprecated,
         duplicate_shred::{DuplicateShred, DuplicateShredIndex, MAX_DUPLICATE_SHREDS},
@@ -191,7 +191,7 @@ impl SnapshotHashes {
 
     /// New random SnapshotHashes for tests and benchmarks.
     pub(crate) fn new_rand<R: Rng>(rng: &mut R, pubkey: Option<Pubkey>) -> Self {
-        let num_hashes = rng.gen_range(0, MAX_SNAPSHOT_HASHES) + 1;
+        let num_hashes = rng.gen_range(0, CLUSTER_CFG.MAX_SNAPSHOT_HASHES) + 1;
         let hashes = std::iter::repeat_with(|| {
             let slot = 47825632 + rng.gen_range(0, 512);
             let hash = solana_sdk::hash::new_rand(rng);

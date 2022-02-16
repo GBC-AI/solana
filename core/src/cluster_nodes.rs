@@ -7,7 +7,7 @@ use {
     solana_gossip::{
         cluster_info::{compute_retransmit_peers, ClusterInfo},
         contact_info::ContactInfo,
-        crds_gossip_pull::CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS,
+        crds_gossip_pull::CFG as GOSSIP_PULL_CFG,
         weighted_shuffle::{
             weighted_best, weighted_sample_single, weighted_shuffle, WeightedShuffle,
         },
@@ -104,7 +104,7 @@ impl<T> ClusterNodes<T> {
                 } else {
                     node.wallclock - now
                 };
-                elapsed < CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
+                elapsed < GOSSIP_PULL_CFG.CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS
             })
             .count()
     }

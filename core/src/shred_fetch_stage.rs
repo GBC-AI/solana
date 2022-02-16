@@ -229,7 +229,7 @@ impl ShredFetchStage {
 mod tests {
     use {
         super::*,
-        solana_ledger::{blockstore::MAX_DATA_SHREDS_PER_SLOT, shred::Shred},
+        solana_ledger::{blockstore::CFG as BLOCKSTORE_CFG, shred::Shred},
     };
 
     #[test]
@@ -370,7 +370,7 @@ mod tests {
         );
         assert!(packet.meta.discard());
 
-        let index = MAX_DATA_SHREDS_PER_SLOT as u32;
+        let index = BLOCKSTORE_CFG.MAX_DATA_SHREDS_PER_SLOT as u32;
         let shred = Shred::new_from_data(5, index, 0, None, true, true, 0, 0, 0);
         shred.copy_to_packet(&mut packet);
         ShredFetchStage::process_packet(

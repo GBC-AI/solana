@@ -162,7 +162,9 @@ mod transaction_account_state_info;
 
 pub const SECONDS_PER_YEAR: f64 = 365.25 * 24.0 * 60.0 * 60.0;
 
-pub const MAX_LEADER_SCHEDULE_STAKES: Epoch = 5;
+toml_config::package_config! {
+    MAX_LEADER_SCHEDULE_STAKES: Epoch,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RentDebit {
@@ -2240,7 +2242,7 @@ impl Bank {
         //  crossed a boundary
         if self.epoch_stakes.get(&leader_schedule_epoch).is_none() {
             self.epoch_stakes.retain(|&epoch, _| {
-                epoch >= leader_schedule_epoch.saturating_sub(MAX_LEADER_SCHEDULE_STAKES)
+                epoch >= leader_schedule_epoch.saturating_sub(CFG.MAX_LEADER_SCHEDULE_STAKES)
             });
 
             let new_epoch_stakes =
@@ -6578,7 +6580,7 @@ pub(crate) mod tests {
         crate::{
             accounts_background_service::{AbsRequestHandler, SendDroppedBankCallback},
             accounts_db::DEFAULT_ACCOUNTS_SHRINK_RATIO,
-            accounts_index::{AccountIndex, AccountSecondaryIndexes, ScanError, ITER_BATCH_SIZE},
+            accounts_index::{AccountIndex, AccountSecondaryIndexes, ScanError, CFG as ACCOUNTS_CFG},
             ancestors::Ancestors,
             genesis_utils::{
                 activate_all_features, bootstrap_validator_stake_lamports,
@@ -6881,7 +6883,7 @@ pub(crate) mod tests {
             assert_eq!(bank.epoch_stake_keys(), initial_epochs);
         }
 
-        for epoch in (initial_epochs.len() as Epoch)..MAX_LEADER_SCHEDULE_STAKES {
+        for epoch in (initial_epochs.len() as Epoch)..CFG.MAX_LEADER_SCHEDULE_STAKES {
             bank.update_epoch_stakes(epoch);
             assert_eq!(bank.epoch_stakes.len() as Epoch, epoch + 1);
         }
@@ -6890,28 +6892,28 @@ pub(crate) mod tests {
             bank.epoch_stake_key_info(),
             (
                 0,
-                MAX_LEADER_SCHEDULE_STAKES - 1,
-                MAX_LEADER_SCHEDULE_STAKES as usize
+                CFG.MAX_LEADER_SCHEDULE_STAKES - 1,
+                CFG.MAX_LEADER_SCHEDULE_STAKES as usize
             )
         );
 
-        bank.update_epoch_stakes(MAX_LEADER_SCHEDULE_STAKES);
+        bank.update_epoch_stakes(CFG.MAX_LEADER_SCHEDULE_STAKES);
         assert_eq!(
             bank.epoch_stake_key_info(),
             (
                 0,
-                MAX_LEADER_SCHEDULE_STAKES,
-                MAX_LEADER_SCHEDULE_STAKES as usize + 1
+                CFG.MAX_LEADER_SCHEDULE_STAKES,
+                CFG.MAX_LEADER_SCHEDULE_STAKES as usize + 1
             )
         );
 
-        bank.update_epoch_stakes(MAX_LEADER_SCHEDULE_STAKES + 1);
+        bank.update_epoch_stakes(CFG.MAX_LEADER_SCHEDULE_STAKES + 1);
         assert_eq!(
             bank.epoch_stake_key_info(),
             (
                 1,
-                MAX_LEADER_SCHEDULE_STAKES + 1,
-                MAX_LEADER_SCHEDULE_STAKES as usize + 1
+                CFG.MAX_LEADER_SCHEDULE_STAKES + 1,
+                CFG.MAX_LEADER_SCHEDULE_STAKES as usize + 1
             )
         );
     }
@@ -13755,7 +13757,7 @@ pub(crate) mod tests {
         bank0.set_callback(drop_callback);
 
         // Set up pubkeys to write to
-        let total_pubkeys = ITER_BATCH_SIZE * 10;
+        let total_pubkeys = ACCOUNTS_CFG.ITER_BATCH_SIZE * 10;
         let total_pubkeys_to_modify = 10;
         let all_pubkeys: Vec<Pubkey> = std::iter::repeat_with(solana_sdk::pubkey::new_rand)
             .take(total_pubkeys)
