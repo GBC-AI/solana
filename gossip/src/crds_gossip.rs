@@ -11,7 +11,7 @@ use {
         crds::{Crds, GossipRoute},
         crds_gossip_error::CrdsGossipError,
         crds_gossip_pull::{CrdsFilter, CrdsGossipPull, ProcessPullStats},
-        crds_gossip_push::{CrdsGossipPush, CRDS_GOSSIP_NUM_ACTIVE},
+        crds_gossip_push::{CrdsGossipPush, CFG as GOSSIP_CFG},
         crds_value::{CrdsData, CrdsValue},
         duplicate_shred::{self, DuplicateShredIndex, LeaderScheduleFn, MAX_DUPLICATE_SHREDS},
         ping_pong::PingCache,
@@ -197,7 +197,7 @@ impl CrdsGossip {
             self_pubkey,
             self_shred_version,
             network_size,
-            CRDS_GOSSIP_NUM_ACTIVE,
+            GOSSIP_CFG.CRDS_GOSSIP_NUM_ACTIVE,
             socket_addr_space,
         )
     }

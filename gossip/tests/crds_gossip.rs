@@ -11,7 +11,8 @@ use {
         crds_gossip::*,
         crds_gossip_error::CrdsGossipError,
         crds_gossip_pull::{ProcessPullStats, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS},
-        crds_gossip_push::CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS,
+        // crds_gossip_push::CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS,
+        crds_gossip_push::CFG as GOSSIP_PUSH_CFG,
         crds_value::{CrdsData, CrdsValue, CrdsValueLabel},
         ping_pong::PingCache,
     },
@@ -424,7 +425,7 @@ fn network_run_push(
                 }
             }
         }
-        if now % CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS == 0 && now > 0 {
+        if now % GOSSIP_PUSH_CFG.CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS == 0 && now > 0 {
             network_values.par_iter().for_each(|node| {
                 let node_pubkey = node.keypair.pubkey();
                 node.gossip.refresh_push_active_set(
